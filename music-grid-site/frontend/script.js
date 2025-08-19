@@ -194,6 +194,29 @@ async function addPlaylist() {
 
 }
 
+
+function animateCircle(circle, startX, startY, endX, endY, duration = 600) {
+  const startTime = performance.now();
+
+  function step(currentTime) {
+    const elapsed = currentTime - startTime;
+    const t = Math.min(elapsed / duration, 1);
+
+    const x = startX + (endX - startX) * t;
+    const y = startY + (endY - startY) * t;
+
+    circle.setAttribute("cx", x);
+    circle.setAttribute("cy", y);
+
+    if (t < 1) {
+      requestAnimationFrame(step);
+    }
+  }
+
+  requestAnimationFrame(step);
+}
+
+
 function plotSong(title, rawX, rawY, color, startX = 350, startY = 350) {
   const svg = document.getElementById("graph");
   const width = svg.clientWidth;
@@ -215,14 +238,7 @@ function plotSong(title, rawX, rawY, color, startX = 350, startY = 350) {
 
   circle.setAttribute("cx", startX);
   circle.setAttribute("cy", startY);
-  circle.animate([
-    { cx: startX, cy: startY },
-    { cx: cx, cy: cy }
-  ], {
-    duration: 600,
-    easing: "ease-out",
-    fill: "forwards"
-  });
+  animateCircle(circle, startX, startY, cx, cy, 600);
 
   // Label
   const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
