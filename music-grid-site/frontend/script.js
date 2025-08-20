@@ -36,7 +36,20 @@ async function generateAxes() {
   }, 100);
 
   try {
+    /*
     const response = await fetch("http://localhost:8000/generate-axes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        x_pos: xPos,
+        x_neg: xNeg,
+        y_pos: yPos,
+        y_neg: yNeg
+      })
+    });
+    */
+
+    const response = await fetch("https://web-production-1aaea.up.railway.app/generate-axes", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -90,6 +103,8 @@ async function addSong() {
   const spinner = document.getElementById("songSpinner");
   spinner.style.display = "block";
 
+/*
+
   const response = await fetch("http://localhost:8000/embed-song", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -98,6 +113,18 @@ async function addSong() {
       artist
     })
   });
+
+  */
+
+  const response = await fetch("https://web-production-1aaea.up.railway.app/embed-song", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title,
+      artist
+    })
+  });
+
 
   const data = await response.json();
 
@@ -164,7 +191,18 @@ async function addPlaylist() {
 
 
   try {
+
+    /*
     const response = await fetch("http://localhost:8000/get-playlist-tracks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          playlist_url : playlistUrl
+        })
+      });
+    */
+
+    const response = await fetch("https://web-production-1aaea.up.railway.app/get-playlist-tracks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -267,7 +305,16 @@ async function clearSongs(){
 }
 
 async function embedAndPlotSong(title, artist, color) {
+
+  /*
   const response = await fetch("http://localhost:8000/embed-song", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title, artist })
+  });
+  */
+
+  const response = await fetch("https://web-production-1aaea.up.railway.app/embed-song", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ title, artist })
