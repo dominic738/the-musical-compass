@@ -28,6 +28,7 @@ def save_cached_phrases(word, phrases):
 
 
 client = openai.OpenAI(
+    api_key=os.getenv("OPENAI_API_KEY"),
     base_url="https://api.groq.com/openai/v1"
 )
 
