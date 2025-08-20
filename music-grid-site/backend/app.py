@@ -8,6 +8,9 @@ import embedding_utils as eu
 import genius_utils as gu
 import spotify_utils as su
 from collections import Counter
+import uvicorn
+
+
 
 
 app = FastAPI()
@@ -95,3 +98,7 @@ async def embed_song(request: Request):
         "embedding": weighted_embedding.tolist()
     }
     
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("backend.app:app", host="0.0.0.0", port=port, reload=True)
