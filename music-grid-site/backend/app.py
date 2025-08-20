@@ -23,6 +23,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.get("/")
+def read_root():
+    return {"hello": "world"}
+
 @app.post("/generate-axes")
 async def generate_axes(request: Request):
     data = await request.json()
@@ -99,3 +104,6 @@ async def embed_song(request: Request):
     }
     
 
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8000))  # Railway gives you a PORT, fallback=8000 for local
+    uvicorn.run(app, host="0.0.0.0", port=port)
