@@ -9,6 +9,7 @@ import genius_utils as gu
 import spotify_utils as su
 from collections import Counter
 
+
 app = FastAPI()
 
 app.add_middleware(
