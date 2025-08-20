@@ -8,7 +8,7 @@ WORKDIR /app
 COPY . /app
 
 # Install CPU-only PyTorch + requirements
-RUN pip install --no-cache-dir torch==2.8.0 \
+RUN pip install --no-cache-dir torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cpu \
     && pip install --no-cache-dir -r requirements.txt
 
 # Expose port for FastAPI
