@@ -31,6 +31,11 @@ print("FastAPI app starting...", flush=True)
 def read_root():
     return {"hello": "world"}
 
+@app.post("/test-post")
+async def test_post(data: dict):
+    print("POST received!", flush=True)
+    return {"ok": True}
+
 @app.post("/generate-axes")
 async def generate_axes(request: Request):
     data = await request.json()
