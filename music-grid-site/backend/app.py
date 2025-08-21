@@ -47,10 +47,15 @@ async def generate_axes(request: Request):
 
     print('Starting phrase generation')
 
-    x_pos_phrases = cu.generate_dynamic_axis_phrases(x_pos)
-    x_neg_phrases = cu.generate_dynamic_axis_phrases(x_neg)
-    y_pos_phrases = cu.generate_dynamic_axis_phrases(y_pos)
-    y_neg_phrases = cu.generate_dynamic_axis_phrases(y_neg)
+    try:
+
+        x_pos_phrases = cu.generate_dynamic_axis_phrases(x_pos)
+        x_neg_phrases = cu.generate_dynamic_axis_phrases(x_neg)
+        y_pos_phrases = cu.generate_dynamic_axis_phrases(y_pos)
+        y_neg_phrases = cu.generate_dynamic_axis_phrases(y_neg)
+    
+    except Exception as e:
+        print("Error generating phrases:", e, flush=True)
 
     print('Done!')
 
