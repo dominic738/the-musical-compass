@@ -37,13 +37,22 @@ async def test_post(data: dict):
     print("POST received!", flush=True)
     return {"ok": True}
 
-def safe_generate_dynamic_axis_phrases(word):
+
+def safe_generate_dynamic_axis_phrases(word, timeout=10):
+    """
+    Runs generate_dynamic_axis_phrases in a thread with timeout.
+    Returns [] if the call fails or times out.
+    """
     try:
-        phrases = cu.generate_dynamic_axis_phrases(word)
-        return phrases
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(cu.generate_dynamic_axis_phrases, word)
+            return future.result(timeout=timeout)
+    except TimeoutError:
+        print(f"Timeout for word '{word}'", flush=True)
+        return []
     except Exception as e:
         print(f"LLM failed for '{word}': {e}", flush=True)
-        return []  # fail gracefully
+        return []
 
 @app.post("/generate-axes")
 async def generate_axes(request: Request):
@@ -55,28 +64,32 @@ async def generate_axes(request: Request):
 
     print("Received request:", data, flush=True)
 
-    # Use ThreadPoolExecutor for parallel LLM calls
+    # Prepare threads for all words
+    results = {}
     with ThreadPoolExecutor(max_workers=4) as executor:
         futures = {
             executor.submit(safe_generate_dynamic_axis_phrases, word): word
             for word in [x_pos, x_neg, y_pos, y_neg]
         }
-        results = {}
+
+        # Collect results as they finish
         for future in as_completed(futures):
             word = futures[future]
             try:
-                results[word] = future.result()
+                phrases = future.result()
+                results[word] = phrases
+                print(f"Finished phrases for '{word}' -> {len(phrases)} phrases", flush=True)
             except Exception as e:
-                print(f"Error processing {word}: {e}", flush=True)
+                print(f"Error processing '{word}': {e}", flush=True)
                 results[word] = []
 
-    # Extract phrases safely
+    # Extract phrase lists
     x_pos_phrases = results.get(x_pos, [])
     x_neg_phrases = results.get(x_neg, [])
     y_pos_phrases = results.get(y_pos, [])
     y_neg_phrases = results.get(y_neg, [])
 
-    # Compute axes (replace with dummy if empty)
+    # Compute axes safely
     try:
         axis_x = eu.compute_axis_svm(x_pos_phrases, x_neg_phrases) if x_pos_phrases and x_neg_phrases else [0.0, 0.0]
         axis_y = eu.compute_axis_svm(y_pos_phrases, y_neg_phrases) if y_pos_phrases and y_neg_phrases else [0.0, 0.0]
