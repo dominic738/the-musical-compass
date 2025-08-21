@@ -15,6 +15,8 @@ import uvicorn
 
 app = FastAPI()
 
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -23,6 +25,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+print("FastAPI app starting...", flush=True)
 
 @app.get("/")
 def read_root():
