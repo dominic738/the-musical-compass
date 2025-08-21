@@ -6,6 +6,7 @@ from collections import Counter
 from sklearn.svm import LinearSVC
 from sklearn.metrics.pairwise import cosine_similarity
 
+MODEL = SentenceTransformer('all-mpnet-base-v2')
 
 # Filtering outliers for SVM
 
@@ -41,7 +42,7 @@ def normalize(v):
 
 # Construct semantic axis from two sets of phrases
 
-def compute_axis_svm(axis1_phrases, axis2_phrases, model = SentenceTransformer('all-mpnet-base-v2'), filter_emb = True):
+def compute_axis_svm(axis1_phrases, axis2_phrases, model = MODEL, filter_emb = True):
     
 
     if filter_emb:
@@ -65,7 +66,7 @@ def compute_axis_svm(axis1_phrases, axis2_phrases, model = SentenceTransformer('
 
 # Score a song by projecting embeddings onto axis with weighting
 
-def score_song_weighted(song, axis, model = SentenceTransformer('all-mpnet-base-v2')):
+def score_song_weighted(song, axis, model = MODEL):
     cleaned_lines = gu.lyrics_preprocessing(song.lyrics)
 
     line_counts = count_lines(cleaned_lines)
@@ -84,7 +85,7 @@ def score_song_weighted(song, axis, model = SentenceTransformer('all-mpnet-base-
 
 
 
-def get_weighted_embedding(song, model = SentenceTransformer('all-mpnet-base-v2')):
+def get_weighted_embedding(song, model = MODEL):
     cleaned_lines = gu.lyrics_preprocessing(song.lyrics)
 
     line_counts = count_lines(cleaned_lines)
@@ -103,7 +104,7 @@ def get_weighted_embedding(song, model = SentenceTransformer('all-mpnet-base-v2'
 
 # Score a playlist using weighted song-level projections; use cached data for faster search
 
-def score_playlist(playlist, axis, model = SentenceTransformer('all-mpnet-base-v2')):
+def score_playlist(playlist, axis, model = MODEL):
     score_d = {}
     for song_name in playlist.keys():
         try:
@@ -125,7 +126,7 @@ def score_playlist(playlist, axis, model = SentenceTransformer('all-mpnet-base-v
 
 
 
-def score_song_weighted(song, axis, model = SentenceTransformer('all-mpnet-base-v2')):
+def score_song_weighted(song, axis, model = MODEL):
     cleaned_lines = gu.lyrics_preprocessing(song.lyrics)
 
     line_counts = count_lines(cleaned_lines)
@@ -142,7 +143,7 @@ def score_song_weighted(song, axis, model = SentenceTransformer('all-mpnet-base-
     return sigmoid_score
 
 
-def score_playlist_2D(playlist, x_axis, y_axis, model = SentenceTransformer('all-mpnet-base-v2')):
+def score_playlist_2D(playlist, x_axis, y_axis, model = MODEL):
     score_d = {}
     for song_name in playlist.keys():
         try:
