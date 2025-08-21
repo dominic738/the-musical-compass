@@ -85,7 +85,7 @@ async def generate_axes(request: Request):
 
     # Extract phrase lists
 
-    print('Extracting phrase lists')
+    print('Extracting phrase lists', flush=True)
     x_pos_phrases = results.get(x_pos, [])
     x_neg_phrases = results.get(x_neg, [])
     y_pos_phrases = results.get(y_pos, [])
@@ -93,7 +93,7 @@ async def generate_axes(request: Request):
 
     # Compute axes safely
 
-    print('Computing Axes')
+    print('Computing Axes', flush=True)
     try:
         axis_x = eu.compute_axis_svm(x_pos_phrases, x_neg_phrases) if x_pos_phrases and x_neg_phrases else [0.0, 0.0]
         axis_y = eu.compute_axis_svm(y_pos_phrases, y_neg_phrases) if y_pos_phrases and y_neg_phrases else [0.0, 0.0]

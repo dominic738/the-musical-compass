@@ -49,8 +49,8 @@ def compute_axis_svm(axis1_phrases, axis2_phrases, model = MODEL, filter_emb = T
         axis1_vecs = filter_to_centroid(axis1_phrases, model.encode(axis1_phrases, normalize_embeddings=True))
         axis2_vecs = filter_to_centroid(axis2_phrases, model.encode(axis2_phrases, normalize_embeddings=True))
     else:
-        axis1_vecs = model.encode(axis1_phrases, normalize_embeddings=True)
-        axis2_vecs = model.encode(axis2_phrases, normalize_embeddings=True)
+        axis1_vecs = model.encode(axis1_phrases, batch_size=32, normalize_embeddings=True)
+        axis2_vecs = model.encode(axis2_phrases, batch_size=32, normalize_embeddings=True)
         
 
     X = np.vstack([axis1_vecs, axis2_vecs])
