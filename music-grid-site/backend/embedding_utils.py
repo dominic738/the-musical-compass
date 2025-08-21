@@ -1,3 +1,57 @@
+
+import genius_utils as gu
+import numpy as np
+from sentence_transformers import SentenceTransformer
+from collections import Counter
+from sklearn.svm import LinearSVC
+from sklearn.metrics.pairwise import cosine_similarity
+
+MODEL = SentenceTransformer('all-mpnet-base-v2')
+
+def filter_to_centroid(embeddings, top_k=100):
+    centroid = np.mean(embeddings, axis=0, keepdims=True)
+    sims = cosine_similarity(embeddings, centroid).flatten()
+    top_indices = np.argsort(sims)[-top_k:]
+    return embeddings[top_indices]
+
+def compute_axis_svm(axis1_phrases, axis2_phrases, model=MODEL, filter_emb=True):
+    if not axis1_phrases or not axis2_phrases:
+        print("Empty phrase list, skipping SVM")
+        return np.array([0.0]*768)
+
+    # Encode once
+    axis1_vecs = model.encode(axis1_phrases, normalize_embeddings=True)
+    axis2_vecs = model.encode(axis2_phrases, normalize_embeddings=True)
+
+    if filter_emb:
+        axis1_vecs = filter_to_centroid(axis1_vecs)
+        axis2_vecs = filter_to_centroid(axis2_vecs)
+
+    X = np.vstack([axis1_vecs, axis2_vecs])
+    y = np.array([1]*len(axis1_vecs) + [0]*len(axis2_vecs))
+
+    clf = LinearSVC(max_iter=5000)
+    clf.fit(X, y)
+
+    axis = clf.coef_.flatten()
+    return axis / np.linalg.norm(axis)
+
+def score_song_weighted(song, axis, model=MODEL):
+    lines = gu.lyrics_preprocessing(song.lyrics)
+    if not lines:
+        return 0.0
+    counts = Counter(lines)
+    unique_lines = list(counts.keys())
+    weights = np.array([counts[line] for line in unique_lines])
+
+    embeddings = model.encode(unique_lines, normalize_embeddings=True)
+    projections = embeddings @ axis
+    weighted_score = np.average(projections, weights=weights)
+    return 2*((1/(1+np.exp(-weighted_score*30)))-0.5)
+
+
+"""
+
 import genius_utils as gu
 import numpy as np
 from sentence_transformers import SentenceTransformer
@@ -169,3 +223,5 @@ def score_playlist_2D(playlist, x_axis, y_axis, model = MODEL):
 
 def create_score_group(scores_dict, color, label):
     return (scores_dict, color, label)
+
+    """
