@@ -1,7 +1,7 @@
 import sys, os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import generative_utils_lite as cu
 import embedding_utils as eu
@@ -92,6 +92,11 @@ async def generate_axes(request: Request):
     y_neg_phrases = results.get(y_neg, [])
 
     # Compute axes safely
+
+    if not x_pos_phrases or not x_neg_phrases or not y_pos_phrases or not y_neg_phrases:
+        missing = [word for word, phrases in results.items() if not phrases]
+        print(f"Missing phrases for words: {missing}. Aborting axis computation.", flush=True)
+        raise HTTPException(status_code=400, detail=f"No phrases generated for: {missing}")
 
     print('Computing Axes', flush=True)
     try:
