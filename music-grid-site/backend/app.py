@@ -9,6 +9,7 @@ import genius_utils as gu
 import spotify_utils as su
 from collections import Counter
 import uvicorn
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 
@@ -36,6 +37,57 @@ async def test_post(data: dict):
     print("POST received!", flush=True)
     return {"ok": True}
 
+def safe_generate_dynamic_axis_phrases(word):
+    try:
+        phrases = cu.generate_dynamic_axis_phrases(word)
+        return phrases
+    except Exception as e:
+        print(f"LLM failed for '{word}': {e}", flush=True)
+        return []  # fail gracefully
+
+@app.post("/generate-axes")
+async def generate_axes(request: Request):
+    data = await request.json()
+    x_pos = data.get("x_pos", "")
+    x_neg = data.get("x_neg", "")
+    y_pos = data.get("y_pos", "")
+    y_neg = data.get("y_neg", "")
+
+    print("Received request:", data, flush=True)
+
+    # Use ThreadPoolExecutor for parallel LLM calls
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {
+            executor.submit(safe_generate_dynamic_axis_phrases, word): word
+            for word in [x_pos, x_neg, y_pos, y_neg]
+        }
+        results = {}
+        for future in as_completed(futures):
+            word = futures[future]
+            try:
+                results[word] = future.result()
+            except Exception as e:
+                print(f"Error processing {word}: {e}", flush=True)
+                results[word] = []
+
+    # Extract phrases safely
+    x_pos_phrases = results.get(x_pos, [])
+    x_neg_phrases = results.get(x_neg, [])
+    y_pos_phrases = results.get(y_pos, [])
+    y_neg_phrases = results.get(y_neg, [])
+
+    # Compute axes (replace with dummy if empty)
+    try:
+        axis_x = eu.compute_axis_svm(x_pos_phrases, x_neg_phrases) if x_pos_phrases and x_neg_phrases else [0.0, 0.0]
+        axis_y = eu.compute_axis_svm(y_pos_phrases, y_neg_phrases) if y_pos_phrases and y_neg_phrases else [0.0, 0.0]
+    except Exception as e:
+        print(f"Error computing axes: {e}", flush=True)
+        axis_x, axis_y = [0.0, 0.0], [0.0, 0.0]
+
+    print("Returning axes", flush=True)
+    return {"axis_x": axis_x.tolist(), "axis_y": axis_y.tolist()}
+
+"""
 @app.post("/generate-axes")
 async def generate_axes(request: Request):
     data = await request.json()
@@ -71,6 +123,8 @@ async def generate_axes(request: Request):
         "axis_x": axis_x.tolist(),
         "axis_y": axis_y.tolist()
     }
+
+"""
 
 @app.post("/get-playlist-tracks")
 async def get_playlist(request: Request):
