@@ -47,12 +47,15 @@ def normalize(v):
 def compute_axis_svm(axis1_phrases, axis2_phrases, model = MODEL, filter_emb = True):
     
 
+    axis1_vecs = model.encode(axis1_phrases, batch_size=256, convert_to_tensor=True, normalize_embeddings=True)
+    axis2_vecs = model.encode(axis2_phrases, batch_size=256, convert_to_tensor=True, normalize_embeddings=True)
+
     if filter_emb:
-        axis1_vecs = filter_to_centroid(axis1_phrases, model.encode(axis1_phrases, batch_size=128, normalize_embeddings=True))
-        axis2_vecs = filter_to_centroid(axis2_phrases, model.encode(axis2_phrases, batch_size=128, normalize_embeddings=True))
+        axis1_vecs = filter_to_centroid(axis1_phrases, axis1_vecs.cpu().numpy())
+        axis2_vecs = filter_to_centroid(axis2_phrases, axis2_vecs.cpu().numpy())
     else:
-        axis1_vecs = model.encode(axis1_phrases, batch_size=128, normalize_embeddings=True)
-        axis2_vecs = model.encode(axis2_phrases, batch_size=128, normalize_embeddings=True)
+        axis1_vecs = axis1_vecs.cpu().numpy()
+        axis2_vecs = axis2_vecs.cpu().numpy()
 
     if len(axis1_vecs) == 0 or len(axis2_vecs) == 0:
         raise ValueError("Not enough embeddings to build axis.")
@@ -61,7 +64,7 @@ def compute_axis_svm(axis1_phrases, axis2_phrases, model = MODEL, filter_emb = T
     X = np.vstack([axis1_vecs, axis2_vecs])
     y = np.array([1] * len(axis1_vecs) + [0] * len(axis2_vecs))
 
-    clf = LinearSVC(max_iter=5000)
+    clf = LinearSVC(max_iter=5000, dual=False)
     clf.fit(X, y)
 
     axis = clf.coef_.flatten()
