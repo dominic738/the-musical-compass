@@ -7,7 +7,8 @@ from collections import Counter
 from sklearn.svm import LinearSVC
 from sklearn.metrics.pairwise import cosine_similarity
 
-MODEL = SentenceTransformer('all-mpnet-base-v2', device='cpu')
+#MODEL = SentenceTransformer('all-mpnet-base-v2', device='cpu')
+MODEL = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
 
 # Filtering outliers for SVM
 
