@@ -9,8 +9,8 @@ from sklearn.metrics.pairwise import cosine_similarity
 import torch
 from sklearn.linear_model import SGDClassifier
 
-#MODEL = SentenceTransformer('all-mpnet-base-v2', device='cpu')
-MODEL = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
+MODEL = SentenceTransformer('all-mpnet-base-v2', device='cpu')
+#MODEL = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
 
 # Filtering outliers for SVM
 
