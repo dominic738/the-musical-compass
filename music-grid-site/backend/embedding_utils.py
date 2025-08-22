@@ -6,6 +6,8 @@ import re
 from collections import Counter
 from sklearn.svm import LinearSVC
 from sklearn.metrics.pairwise import cosine_similarity
+import torch
+from sklearn.linear_model import SGDClassifier
 
 #MODEL = SentenceTransformer('all-mpnet-base-v2', device='cpu')
 MODEL = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
@@ -45,7 +47,9 @@ def normalize(v):
 # Construct semantic axis from two sets of phrases
 
 def compute_axis_svm(axis1_phrases, axis2_phrases, model = MODEL, filter_emb = True):
-    
+
+    torch.set_num_threads(8)
+    print("Using", torch.get_num_threads(), "CPU threads")
 
     axis1_vecs = model.encode(axis1_phrases, batch_size=256, convert_to_tensor=True, normalize_embeddings=True)
     axis2_vecs = model.encode(axis2_phrases, batch_size=256, convert_to_tensor=True, normalize_embeddings=True)
@@ -64,11 +68,20 @@ def compute_axis_svm(axis1_phrases, axis2_phrases, model = MODEL, filter_emb = T
     X = np.vstack([axis1_vecs, axis2_vecs])
     y = np.array([1] * len(axis1_vecs) + [0] * len(axis2_vecs))
 
+    """
     clf = LinearSVC(max_iter=5000, dual=False)
     clf.fit(X, y)
 
     axis = clf.coef_.flatten()
     return axis / np.linalg.norm(axis)
+    """
+
+
+    clf = SGDClassifier(loss="hinge", max_iter=5000, n_jobs=-1)  # -1 = use all vCPUs
+    clf.fit(X, y)
+    axis = clf.coef_.flatten()
+    axis = axis / np.linalg.norm(axis)
+    return axis
 
 
 
