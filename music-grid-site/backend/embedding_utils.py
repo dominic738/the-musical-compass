@@ -47,11 +47,11 @@ def compute_axis_svm(axis1_phrases, axis2_phrases, model = MODEL, filter_emb = T
     
 
     if filter_emb:
-        axis1_vecs = filter_to_centroid(axis1_phrases, model.encode(axis1_phrases, batch_size=32, normalize_embeddings=True))
-        axis2_vecs = filter_to_centroid(axis2_phrases, model.encode(axis2_phrases, batch_size=32, normalize_embeddings=True))
+        axis1_vecs = filter_to_centroid(axis1_phrases, model.encode(axis1_phrases, batch_size=128, normalize_embeddings=True))
+        axis2_vecs = filter_to_centroid(axis2_phrases, model.encode(axis2_phrases, batch_size=128, normalize_embeddings=True))
     else:
-        axis1_vecs = model.encode(axis1_phrases, batch_size=32, normalize_embeddings=True)
-        axis2_vecs = model.encode(axis2_phrases, batch_size=32, normalize_embeddings=True)
+        axis1_vecs = model.encode(axis1_phrases, batch_size=128, normalize_embeddings=True)
+        axis2_vecs = model.encode(axis2_phrases, batch_size=128, normalize_embeddings=True)
 
     if len(axis1_vecs) == 0 or len(axis2_vecs) == 0:
         raise ValueError("Not enough embeddings to build axis.")
@@ -77,7 +77,7 @@ def score_song_weighted(song, axis, model = MODEL):
     unique_lines = list(line_counts.keys())
     counts = np.array([line_counts[line] for line in unique_lines])
 
-    embeddings = model.encode(unique_lines, batch_size = 32, normalize_embeddings = True)
+    embeddings = model.encode(unique_lines, batch_size = 128, normalize_embeddings = True)
     projections = np.dot(embeddings, axis)
 
     weighted_score = np.average(projections, weights = counts)
