@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>The Musical Compass</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" type="image/x-icon" href="assets/favicon-16x16.png">
+</head>
+<body>
+
+
+
+  <div class="sidebar">
+
+    <div>
+    <button id="tutorialBtn">Tutorial</button>
+    </div>
+
+
+    <div>
+      <label>X+ Axis</label>
+      <input type="text" id="xPos" placeholder="e.g. Happy" />
+    </div>
+    <div>
+      <label>X− Axis</label>
+      <input type="text" id="xNeg" placeholder="e.g. Sad" />
+    </div>
+    <div>
+      <label>Y+ Axis</label>
+      <input type="text" id="yPos" placeholder="e.g. Angry" />
+    </div>
+    <div>
+      <label>Y− Axis</label>
+      <input type="text" id="yNeg" placeholder="e.g. Calm" />
+    </div>
+    <div>
+      <button id="generateBtn">Generate Axes</button>
+    </div>
+    <div id="axisLoadingBar" class="loading-bar-container">
+      <div class="loading-bar"></div>
+    </div>
+  </div>
+
+  <div id="tutorialOverlay" class="overlay-screen">
+  <div class="overlay-backdrop"></div>
+  <div class="overlay-content">
+    <button class="close-overlay" id="closeTutorialBtn">×</button>
+    <h2>About Musical Compass</h2>
+    <p><strong>Musical Compass</strong> is an interactive tool that lets you explore songs based on their emotional meaning, not just genre or popularity.</p>
+    <p>Instead of organizing music by playlists or artists, this app maps songs into a 2D space defined by <strong>your chosen emotional axes</strong> — like <em>Happy–Sad</em> or <em>Calm–Angry</em>.</p>
+    <p>This 2D space is based entirely on the lyrics of each song. An upbeat, cheerful-sounding track might be positioned as “sad” if its lyrics carry a somber message.</p>
+    <ol>
+      <li>You define the axes</li>
+      <li>Add songs or playlists</li>
+      <li>The lyrics are processed using advanced language models</li>
+      <li>Songs are placed on the grid based on meaning</li>
+    </ol>
+    <p>This tool was created by Dominic Bankovitch. Thanks for checking it out!</p>
+    <p>Email me: dbankovitch@gmail.com</p>
+  </div>
+</div>
+  
+
+  <div class="graph-container">
+  <img src="assets/logo.png" alt="Musical Compass Logo" />
+  <svg id="graph" width="700" height="700">
+    <!-- Axis lines -->
+    <line x1="350" y1="0" x2="350" y2="700" stroke="#ccc" stroke-dasharray="5" />
+    <line x1="0" y1="350" x2="700" y2="350" stroke="#ccc" stroke-dasharray="5" />
+  </svg>
+</div>
+
+  <div class="inputs">
+
+    <div class="song-input">
+      <h3>Add a Song</h3>
+      <label for="songTitle">Title</label>
+      <input type="text" id="songTitle" placeholder="Song Title (e.g. Creep)" />
+      <label for="artistName">Artist Name</label>
+      <input type="text" id="artistName" placeholder="Artist (e.g. Radiohead)" />
+      <label for="songColor">Dot Color</label>
+      <input type="color" id="songColor" value="808080">
+      <button id="addSongBtn">Add Song</button>
+    </div>
+
+    <div id="songSpinner" class="spinner" style="display: none;"></div>
+
+    <div class="playlist-input">
+      <h3>Add a Spotify Playlist</h3>
+      <label for="playlistUrl">Playlist URL</label>
+      <input type="text" id="playlistUrl" placeholder="Playlist Link (e.g. https://open.spotify.com/playlist/...)" />
+      <label for="playlistColor">Dot Color</label>
+      <input type="color" id="playlistColor" value="808080">
+      <button id="addPlaylistBtn">Add Playlist</button>
+    </div>
+
+    <div id="playlistSpinner" class="spinner" style="display: none;"></div>
+
+    <div class="clear-input">
+      <h3>Clear Songs</h3>
+      <button id="clearBtn">Clear Songs</button>
+    </div>
+
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+  <script src="script.js"></script>
+
+</body>
+</html>

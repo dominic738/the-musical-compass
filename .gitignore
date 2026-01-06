@@ -1,0 +1,6 @@
+backend/__pycache__/
+backend/.env
+backend/.env.yaml
+backend/.cache/
+venv/
+.DS_Store
