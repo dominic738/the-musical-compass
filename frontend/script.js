@@ -1,6 +1,6 @@
 // Backend API URL - change this when deploying
 // const API_URL = "http://localhost:8000";
-const API_URL = "https://musical-compass-api-603407497726.us-central1.run.app"; // Use this for production
+const API_URL = "https://musical-compass-backend-v2-390523133390.us-central1.run.app"; // Use this for production
 
 let currentAxisX = null;
 let currentAxisY = null;
