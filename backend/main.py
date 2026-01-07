@@ -5,11 +5,14 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import generative_utils as cu
 import embedding_utils as eu
-import genius_utils as gu
+import lyrics_utils as lu
 import spotify_utils as su
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import uvicorn
 import numpy as np
+import re
+from pinecone import Pinecone
+
 
 app = FastAPI()
 
@@ -20,6 +23,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
+song_index = pc.Index("song-embeddings")
 
 print("FastAPI app starting...", flush=True)
 
@@ -54,6 +61,9 @@ def safe_generate_dynamic_axis_phrases(word, timeout=90):
 
 @app.post("/generate-axes")
 async def generate_axes(request: Request):
+
+    print('generateAxes clicked')
+
     data = await request.json()
     x_pos = data.get("x_pos", "")
     x_neg = data.get("x_neg", "")
@@ -119,26 +129,46 @@ async def get_playlist(request: Request):
     return {"tracks": tracks}
 
 
-@app.post("/embed-song")
-async def embed_song(request: Request):
-    """
-    Embed a single song using the 'Smart' logic:
-    1. Checks Pinecone DB first (Fast)
-    2. Only fetches from Genius if DB miss (Slow)
-    """
+@app.post("/check-song")
+async def check_song(request: Request):
     data = await request.json()
+    title = data.get("title")
+    artist = data.get("artist")
+
+    song_id = f"{title}__{artist}".replace(" ", "_").lower()
+    song_id = re.sub(r'[^a-zA-Z0-9_-]', '', song_id)
+
+    try:
+        result = song_index.fetch(ids=[song_id])
+        if song_id in result["vectors"]:
+            return {
+                "found": True,
+                "embedding": result["vectors"][song_id]["values"]
+            }
+    except Exception:
+        pass
+
+    return {"found": False}
+
+
+@app.post("/embed-lyrics")
+async def embed_song(request: Request):
+
+    data = await request.json()
+
     title = data.get('title')
     artist = data.get('artist')
+    lyrics = data.get('lyrics')
 
-    if not title or not artist:
-        return {'error': "Missing title or artist"}
+    if not title or not artist or not lyrics:
+        return {'error': "Missing title, artist, or lyrics"}
 
     print(f'Embedding song: {title} — {artist}', flush=True)
 
     try:
         # 1. Use the new Smart function (Assumed to be in your 'eu' module)
         # This handles the DB check AND the Genius fallback internally.
-        weighted_embedding = eu.get_weighted_embedding(title, artist)
+        weighted_embedding = eu.get_weighted_embedding_from_lyrics(title, artist, lyrics)
         
         if weighted_embedding is None:
              return {'error': 'Song not found or no lyrics available.'}
@@ -152,8 +182,6 @@ async def embed_song(request: Request):
     except Exception as e:
         print(f"Error processing song: {e}", flush=True)
         return {'error': f"Server error: {str(e)}"}
-
-
 
 
 @app.post("/reset-pinecone")

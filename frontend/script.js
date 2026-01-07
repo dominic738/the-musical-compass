@@ -1,6 +1,6 @@
 // Backend API URL - change this when deploying
 // const API_URL = "http://localhost:8000";
-const API_URL = " https://musical-compass-api-603407497726.us-central1.run.app"; // Use this for production
+const API_URL = "https://musical-compass-api-603407497726.us-central1.run.app"; // Use this for production
 
 let currentAxisX = null;
 let currentAxisY = null;
@@ -184,7 +184,7 @@ async function addSong() {
   const color = document.getElementById("songColor").value;
 
   if (!title || !artist) {
-    alert("Please enter both song title and artist name!");
+    alert("Please enter both song title and artist.");
     return;
   }
 
@@ -197,31 +197,100 @@ async function addSong() {
   spinner.style.display = "block";
 
   try {
-    const response = await fetch(`${API_URL}/embed-song`, {
+    const checkRes = await fetch(`${API_URL}/check-song`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title, artist })
     });
 
-    const data = await response.json();
+    const checkData = await checkRes.json();
 
-    if (!data.embedding) {
-      spinner.style.display = "none";
-      alert(data.error || "No lyrics found or embedding failed.");
+
+    if (checkData.found) {
+      const x = dot(checkData.embedding, currentAxisX);
+      const y = dot(checkData.embedding, currentAxisY);
+      plotSong(`${title} — ${artist}`, x, y, color);
       return;
     }
 
-    const x = dot(data.embedding, currentAxisX);
-    const y = dot(data.embedding, currentAxisY);
 
+    openLyricsModal({ title, artist, color });
+
+  } catch (err) {
+    console.error(err);
+    alert("Failed to add song.");
+  } finally {
     spinner.style.display = "none";
-    plotSong(`${title} — ${artist}`, x, y, color);
-  } catch (error) {
-    console.error("Error adding song:", error);
-    spinner.style.display = "none";
-    alert("Failed to add song. Please try again.");
   }
 }
+
+function openLyricsModal({ title, artist, color }) {
+  const modal = document.createElement("div");
+
+  modal.style.cssText = `
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6);
+    backdrop-filter: blur(6px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 999999;
+  `;
+
+  modal.innerHTML = `
+    <div style="
+      background: white;
+      padding: 28px;
+      border-radius: 16px;
+      width: 90%;
+      max-width: 520px;
+      font-family: sans-serif;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+    ">
+      <h2 style="margin: 0 0 8px;">🎵 Lyrics Needed</h2>
+      <p style="color: #555; font-size: 14px; margin-bottom: 14px;">
+        I don’t have <strong>${title} — ${artist}</strong> in my database yet.<br>
+        Would you mind pasting the lyrics below?
+      </p>
+
+      <textarea id="lyricsModalInput" placeholder="Paste lyrics here..."
+        style="
+          width: 100%;
+          height: 180px;
+          padding: 12px;
+          font-size: 13px;
+          border-radius: 8px;
+          border: 1px solid #ddd;
+          resize: vertical;
+        "></textarea>
+
+      <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px;">
+        <button id="cancelLyricsBtn">Cancel</button>
+        <button id="submitLyricsBtn"
+          style="background:#667eea;color:white;border:none;padding:8px 14px;border-radius:8px;">
+          Submit
+        </button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  modal.querySelector("#cancelLyricsBtn").onclick = () => modal.remove();
+
+  modal.querySelector("#submitLyricsBtn").onclick = async () => {
+    const lyrics = modal.querySelector("#lyricsModalInput").value.trim();
+    if (!lyrics) {
+      alert("Please paste lyrics.");
+      return;
+    }
+
+    modal.remove();
+    await embedAndPlotWithLyrics({ title, artist, lyrics, color });
+  };
+}
+
+
 
 function animateText(label, startX, startY, endX, endY, duration = 600) {
   const startTime = performance.now();
@@ -350,29 +419,31 @@ async function clearSongs() {
   labels.forEach(label => label.remove());
 }
 
-async function embedAndPlotSong(title, artist, color) {
+async function embedAndPlotWithLyrics({ title, artist, lyrics, color }) {
   try {
-    const response = await fetch(`${API_URL}/embed-song`, {
+    const embedRes = await fetch(`${API_URL}/embed-lyrics`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title, artist })
+      body: JSON.stringify({ title, artist, lyrics })
     });
 
-    const data = await response.json();
-
-    if (!data.embedding) {
-      console.warn(`No embedding found for ${title} — ${artist}`);
+    const embedData = await embedRes.json();
+    if (!embedData.embedding) {
+      alert("Failed to embed lyrics.");
       return;
     }
 
-    const x = dot(data.embedding, currentAxisX);
-    const y = dot(data.embedding, currentAxisY);
+    const x = dot(embedData.embedding, currentAxisX);
+    const y = dot(embedData.embedding, currentAxisY);
 
     plotSong(`${title} — ${artist}`, x, y, color);
-  } catch (error) {
-    console.error(`Error embedding ${title}:`, error);
+
+  } catch (e) {
+    console.error(e);
+    alert("Embedding failed.");
   }
 }
+
 
 function drawAxisLabels(xLeft, xRight, yTop, yBottom) {
   const svg = document.getElementById("graph");
@@ -406,7 +477,7 @@ window.onload = () => {
   console.log("script.js loaded!");
   document.getElementById("generateBtn").addEventListener("click", generateAxes);
   document.getElementById("addSongBtn").addEventListener("click", addSong);
-  document.getElementById('addPlaylistBtn').addEventListener('click', addPlaylist);
+  //document.getElementById('addPlaylistBtn').addEventListener('click', addPlaylist);
   document.getElementById('clearBtn').addEventListener('click', clearSongs);
 
   const overlay = document.getElementById("tutorialOverlay");

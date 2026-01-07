@@ -51,7 +51,7 @@
     <p>This 2D space is based entirely on the lyrics of each song. An upbeat, cheerful-sounding track might be positioned as “sad” if its lyrics carry a somber message.</p>
     <ol>
       <li>You define the axes</li>
-      <li>Add songs or playlists</li>
+      <li>Add songs and lyrics</li>
       <li>The lyrics are processed using advanced language models</li>
       <li>Songs are placed on the grid based on meaning</li>
     </ol>
@@ -78,21 +78,14 @@
       <input type="text" id="songTitle" placeholder="Song Title (e.g. Creep)" />
       <label for="artistName">Artist Name</label>
       <input type="text" id="artistName" placeholder="Artist (e.g. Radiohead)" />
-      <label for="songColor">Dot Color</label>
+        <label for="songColor">Dot Color</label>
       <input type="color" id="songColor" value="808080">
+      
       <button id="addSongBtn">Add Song</button>
+      
     </div>
 
     <div id="songSpinner" class="spinner" style="display: none;"></div>
-
-    <div class="playlist-input">
-      <h3>Add a Spotify Playlist</h3>
-      <label for="playlistUrl">Playlist URL</label>
-      <input type="text" id="playlistUrl" placeholder="Playlist Link (e.g. https://open.spotify.com/playlist/...)" />
-      <label for="playlistColor">Dot Color</label>
-      <input type="color" id="playlistColor" value="808080">
-      <button id="addPlaylistBtn">Add Playlist</button>
-    </div>
 
     <div id="playlistSpinner" class="spinner" style="display: none;"></div>
 
@@ -102,9 +95,10 @@
     </div>
 
   </div>
-
+ 
   <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
   <script src="script.js"></script>
+  
 
 </body>
 </html>
