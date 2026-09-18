@@ -16,13 +16,27 @@ from pinecone import Pinecone
 
 app = FastAPI()
 
+ALLOWED_ORIGINS = [
+    "https://mymusicalcompass.com",
+    "https://www.mymusicalcompass.com",
+    "http://localhost:5500",
+    "http://127.0.0.1:5500",
+    "null",  # local index.html opened directly via file:// sends Origin: null
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type", "X-Admin-Key"],
 )
+
+ADMIN_API_KEY = os.getenv("ADMIN_API_KEY")
+
+def require_admin_key(request: Request):
+    if not ADMIN_API_KEY or request.headers.get("X-Admin-Key") != ADMIN_API_KEY:
+        raise HTTPException(status_code=403, detail="Not authorized")
 
 
 pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
@@ -189,10 +203,13 @@ async def reset_pinecone(request: Request):
     """
     DANGER: Delete all vectors from both Pinecone indexes.
     Use with caution - this wipes all cached data.
+    Requires the X-Admin-Key header to match the ADMIN_API_KEY env var.
     """
+    require_admin_key(request)
+
     data = await request.json()
     confirm = data.get('confirm', '')
-    
+
     if confirm != 'DELETE_ALL':
         raise HTTPException(
             status_code=400, 
