@@ -1,0 +1,10 @@
+# Keep secrets and local cruft out of the Cloud Build upload.
+# Runtime config comes from Cloud Run env vars, not these files.
+.gcloudignore
+.git
+.gitignore
+.env
+.env.yaml
+.cache
+__pycache__/
+*.pyc
