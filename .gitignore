@@ -4,3 +4,11 @@ backend/.env.yaml
 backend/.cache
 venv/
 .DS_Store
+# Impeccable design tooling (installed skill and working files); the brief and design system stay tracked
+.claude/skills/
+.agents/
+skills-lock.json
+.impeccable/mocks/
+.impeccable/review/
+.impeccable/questions/
+.impeccable/config.local.json

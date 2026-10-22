@@ -3,14 +3,14 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 import generative_utils as cu
 import embedding_utils as eu
 import lyrics_utils as lu
 import spotify_utils as su
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, wait
 import uvicorn
 import numpy as np
-import re
 from pinecone import Pinecone
 
 
@@ -42,6 +42,33 @@ def require_admin_key(request: Request):
 pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
 song_index = pc.Index("song-embeddings")
 
+# Total time allowed for phrase generation + embedding across all axis words
+AXIS_TIMEOUT_SECONDS = 90
+
+
+class AxesRequest(BaseModel):
+    x_pos: str = Field(min_length=1, max_length=50)
+    x_neg: str = Field(min_length=1, max_length=50)
+    y_pos: str = Field(min_length=1, max_length=50)
+    y_neg: str = Field(min_length=1, max_length=50)
+
+
+class PlaylistRequest(BaseModel):
+    playlist_url: str = Field(min_length=1, max_length=500)
+
+
+class SongRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    artist: str = Field(min_length=1, max_length=200)
+
+
+class LyricsRequest(SongRequest):
+    lyrics: str = Field(min_length=1, max_length=20000)
+
+
+class ResetRequest(BaseModel):
+    confirm: str = ""
+
 print("FastAPI app starting...", flush=True)
 
 @app.get("/")
@@ -54,89 +81,69 @@ async def test_post(data: dict):
     return {"ok": True}
 
 
-def safe_generate_dynamic_axis_phrases(word, timeout=90):
-    """
-    Runs generate_dynamic_axis_phrases in a thread with timeout.
-    Returns empty array if the call fails or times out.
-    90s timeout to handle phrase generation + embedding (~5s + ~3s per word).
-    """
-    try:
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(cu.generate_dynamic_axis_phrases, word)
-            result = future.result(timeout=timeout)
-            return result if result is not None else np.array([])
-    except TimeoutError:
-        print(f"Timeout for word '{word}'", flush=True)
-        return np.array([])
-    except Exception as e:
-        print(f"LLM failed for '{word}': {e}", flush=True)
-        return np.array([])
-
-
 @app.post("/generate-axes")
-async def generate_axes(request: Request):
+def generate_axes(body: AxesRequest):
+    x_pos, x_neg = body.x_pos.strip(), body.x_neg.strip()
+    y_pos, y_neg = body.y_pos.strip(), body.y_neg.strip()
 
-    print('generateAxes clicked')
+    print("Received request:", body.model_dump(), flush=True)
 
-    data = await request.json()
-    x_pos = data.get("x_pos", "")
-    x_neg = data.get("x_neg", "")
-    y_pos = data.get("y_pos", "")
-    y_neg = data.get("y_neg", "")
+    if not all([x_pos, x_neg, y_pos, y_neg]):
+        raise HTTPException(status_code=400, detail="Please fill in all four axis words.")
+    if x_pos.lower() == x_neg.lower() or y_pos.lower() == y_neg.lower():
+        raise HTTPException(status_code=400, detail="Each axis needs two different words.")
 
-    print("Received request:", data, flush=True)
+    # Phrases are cached per lowercase word, so only generate each distinct word once
+    words = {w.lower(): w for w in [x_pos, x_neg, y_pos, y_neg]}
 
-    # Generate phrases for all 4 words in parallel
+    # Generate phrases for all words in parallel. Not using a `with` block: its
+    # exit waits for every thread, which would defeat the timeout.
+    executor = ThreadPoolExecutor(max_workers=len(words))
+    futures = {executor.submit(cu.generate_dynamic_axis_phrases, w): key for key, w in words.items()}
+    done, not_done = wait(futures, timeout=AXIS_TIMEOUT_SECONDS)
+    executor.shutdown(wait=False, cancel_futures=True)
+
     results = {}
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        futures = {
-            executor.submit(safe_generate_dynamic_axis_phrases, word): word
-            for word in [x_pos, x_neg, y_pos, y_neg]
-        }
+    for future in done:
+        key = futures[future]
+        try:
+            embeddings = future.result()
+            results[key] = embeddings if embeddings is not None else np.array([])
+            print(f"Finished embeddings for '{key}' -> {len(results[key])} phrase embeddings", flush=True)
+        except Exception as e:
+            print(f"LLM failed for '{key}': {e}", flush=True)
+    for future in not_done:
+        print(f"Timeout for word '{futures[future]}'", flush=True)
 
-        # Collect results as they finish
-        for future in as_completed(futures):
-            word = futures[future]
-            try:
-                embeddings = future.result()
-                results[word] = embeddings
-                print(f"Finished embeddings for '{word}' -> {len(embeddings)} phrase embeddings", flush=True)
-            except Exception as e:
-                print(f"Error processing '{word}': {e}", flush=True)
-                results[word] = np.array([])
-
-    # Extract phrase embedding arrays
-    print('Extracting phrase embeddings', flush=True)
-    x_pos_embeddings = results.get(x_pos, np.array([]))
-    x_neg_embeddings = results.get(x_neg, np.array([]))
-    y_pos_embeddings = results.get(y_pos, np.array([]))
-    y_neg_embeddings = results.get(y_neg, np.array([]))
-
-    # Validate we have embeddings for all words
-    if len(x_pos_embeddings) == 0 or len(x_neg_embeddings) == 0 or len(y_pos_embeddings) == 0 or len(y_neg_embeddings) == 0:
-        missing = [word for word, embs in results.items() if len(embs) == 0]
+    missing = [w for key, w in words.items() if len(results.get(key, [])) == 0]
+    if missing:
         print(f"Missing embeddings for words: {missing}. Aborting axis computation.", flush=True)
         raise HTTPException(status_code=400, detail=f"No phrase embeddings generated for: {missing}")
 
     # Compute axes using OpenAI embeddings + SVM
     print('Computing Axes', flush=True)
     try:
-        axis_x = eu.compute_axis_svm(x_pos_embeddings, x_neg_embeddings)
-        axis_y = eu.compute_axis_svm(y_pos_embeddings, y_neg_embeddings)
+        axis_x, offset_x = eu.compute_axis_svm(results[x_pos.lower()], results[x_neg.lower()])
+        axis_y, offset_y = eu.compute_axis_svm(results[y_pos.lower()], results[y_neg.lower()])
     except Exception as e:
         print(f"Error computing axes: {e}", flush=True)
         raise HTTPException(status_code=500, detail=f"Axis computation failed: {str(e)}")
 
     print("Returning axes", flush=True)
-    return {"axis_x": axis_x.tolist(), "axis_y": axis_y.tolist()}
+    return {
+        "axis_x": axis_x.tolist(),
+        "axis_y": axis_y.tolist(),
+        "offset_x": offset_x,
+        "offset_y": offset_y,
+    }
 
 
 @app.post("/get-playlist-tracks")
-async def get_playlist(request: Request):
-    data = await request.json()
-    
-    playlist_url = data.get('playlist_url')
-    playlist = su.get_playlist(playlist_url)
+def get_playlist(body: PlaylistRequest):
+    try:
+        playlist = su.get_playlist(body.playlist_url)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
 
     print(f"Found {len(playlist)} tracks in playlist", flush=True)
     tracks = [{"title": title, "artist": artist} for title, artist in playlist.items()]
@@ -144,13 +151,8 @@ async def get_playlist(request: Request):
 
 
 @app.post("/check-song")
-async def check_song(request: Request):
-    data = await request.json()
-    title = data.get("title")
-    artist = data.get("artist")
-
-    song_id = f"{title}__{artist}".replace(" ", "_").lower()
-    song_id = re.sub(r'[^a-zA-Z0-9_-]', '', song_id)
+def check_song(body: SongRequest):
+    song_id = eu.make_song_id(body.title, body.artist)
 
     try:
         result = song_index.fetch(ids=[song_id])
@@ -159,47 +161,35 @@ async def check_song(request: Request):
                 "found": True,
                 "embedding": result["vectors"][song_id]["values"]
             }
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Pinecone fetch error for '{song_id}': {e}", flush=True)
 
     return {"found": False}
 
 
 @app.post("/embed-lyrics")
-async def embed_song(request: Request):
-
-    data = await request.json()
-
-    title = data.get('title')
-    artist = data.get('artist')
-    lyrics = data.get('lyrics')
-
-    if not title or not artist or not lyrics:
-        return {'error': "Missing title, artist, or lyrics"}
+def embed_song(body: LyricsRequest):
+    title, artist, lyrics = body.title.strip(), body.artist.strip(), body.lyrics
 
     print(f'Embedding song: {title} — {artist}', flush=True)
 
     try:
-        # 1. Use the new Smart function (Assumed to be in your 'eu' module)
-        # This handles the DB check AND the Genius fallback internally.
         weighted_embedding = eu.get_weighted_embedding_from_lyrics(title, artist, lyrics)
-        
-        if weighted_embedding is None:
-             return {'error': 'Song not found or no lyrics available.'}
-
-        print(f'✓ Embedding ready for: {title}', flush=True)
-
-        return {
-            "embedding": weighted_embedding.tolist()
-        }
-
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         print(f"Error processing song: {e}", flush=True)
-        return {'error': f"Server error: {str(e)}"}
+        raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
+
+    if weighted_embedding is None:
+        raise HTTPException(status_code=400, detail="No usable lyrics found in the pasted text.")
+
+    print(f'✓ Embedding ready for: {title}', flush=True)
+    return {"embedding": weighted_embedding.tolist()}
 
 
 @app.post("/reset-pinecone")
-async def reset_pinecone(request: Request):
+def reset_pinecone(request: Request, body: ResetRequest):
     """
     DANGER: Delete all vectors from both Pinecone indexes.
     Use with caution - this wipes all cached data.
@@ -207,10 +197,7 @@ async def reset_pinecone(request: Request):
     """
     require_admin_key(request)
 
-    data = await request.json()
-    confirm = data.get('confirm', '')
-
-    if confirm != 'DELETE_ALL':
+    if body.confirm != 'DELETE_ALL':
         raise HTTPException(
             status_code=400, 
             detail="Must send {\"confirm\": \"DELETE_ALL\"} to reset database"
@@ -261,5 +248,5 @@ async def reset_pinecone(request: Request):
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000))
+    port = int(os.environ.get("PORT", 8080))
     uvicorn.run(app, host="0.0.0.0", port=port)

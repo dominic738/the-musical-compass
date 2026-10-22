@@ -2,103 +2,166 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>The Musical Compass</title>
+  <meta name="description" content="A political compass for songs: name four feelings and see where songs land by the meaning of their lyrics." />
+  <link rel="preload" href="assets/fonts/arimo-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="style.css">
-  <link rel="icon" type="image/x-icon" href="assets/favicon-16x16.png">
+  <link rel="icon" type="image/png" href="assets/favicon-16x16.png">
 </head>
 <body>
 
+  <!-- Masthead -->
+  <header class="side side-head">
+    <a class="brand" href="./" aria-label="The Musical Compass, home">
+      <svg class="brand-mark" viewBox="0 0 30 30" aria-hidden="true">
+        <rect x="1" y="1" width="14" height="14" fill="#FF7575" />
+        <rect x="15" y="1" width="14" height="14" fill="#42AAFF" />
+        <rect x="1" y="15" width="14" height="14" fill="#9AED97" />
+        <rect x="15" y="15" width="14" height="14" fill="#C09AEC" />
+        <path d="M15 1v28M1 15h28" stroke="#000" stroke-width="1.5" />
+        <rect x="1" y="1" width="28" height="28" fill="none" stroke="#000" stroke-width="2" />
+      </svg>
+      <span class="brand-name">The Musical Compass</span>
+    </a>
+    <p class="lede">A political compass for songs. Name four feelings, add songs, and see where their lyrics put them.</p>
+    <button id="tutorialBtn" class="link-btn">How it works</button>
+  </header>
 
+  <!-- Step 1 -->
+  <section class="side side-axes" aria-labelledby="axesHeading">
+    <h2 id="axesHeading" class="side-title">1. Axes</h2>
+    <div class="axis-fields">
+      <label class="field">
+        <span class="field-label">Up</span>
+        <input type="text" id="yPos" placeholder="Angry" maxlength="50" autocomplete="off" />
+      </label>
+      <label class="field">
+        <span class="field-label">Down</span>
+        <input type="text" id="yNeg" placeholder="Calm" maxlength="50" autocomplete="off" />
+      </label>
+      <label class="field">
+        <span class="field-label">Left</span>
+        <input type="text" id="xNeg" placeholder="Sad" maxlength="50" autocomplete="off" />
+      </label>
+      <label class="field">
+        <span class="field-label">Right</span>
+        <input type="text" id="xPos" placeholder="Happy" maxlength="50" autocomplete="off" />
+      </label>
+    </div>
+    <button id="generateBtn" class="btn btn-primary">Generate compass</button>
+  </section>
 
-  <div class="sidebar">
+  <!-- Step 2 -->
+  <section class="side side-song" aria-labelledby="songHeading">
+    <h2 id="songHeading" class="side-title">2. Add a song</h2>
+    <label class="field">
+      <span class="field-label">Title</span>
+      <input type="text" id="songTitle" placeholder="Hey Ya!" maxlength="200" autocomplete="off" />
+    </label>
+    <label class="field">
+      <span class="field-label">Artist</span>
+      <input type="text" id="artistName" placeholder="OutKast" maxlength="200" autocomplete="off" />
+    </label>
+    <div class="field">
+      <span class="field-label" id="colorLabel">Dot</span>
+      <div class="swatches" role="group" aria-labelledby="colorLabel">
+        <button type="button" class="swatch" data-color="#E10600" style="--c:#E10600" aria-label="Red"></button>
+        <button type="button" class="swatch" data-color="#111111" style="--c:#111111" aria-label="Black"></button>
+        <button type="button" class="swatch" data-color="#FFFFFF" style="--c:#FFFFFF" aria-label="White"></button>
+        <button type="button" class="swatch" data-color="#FFD400" style="--c:#FFD400" aria-label="Yellow"></button>
+        <button type="button" class="swatch" data-color="#FF7A00" style="--c:#FF7A00" aria-label="Orange"></button>
+        <button type="button" class="swatch" data-color="#1638A8" style="--c:#1638A8" aria-label="Navy"></button>
+        <label class="swatch swatch-custom" title="Custom colour">
+          <input type="color" id="customColor" value="#E10600" aria-label="Custom colour" />
+        </label>
+      </div>
+    </div>
+    <button id="addSongBtn" class="btn btn-primary">Add song</button>
+  </section>
 
-    <div>
-    <button id="tutorialBtn">Tutorial</button>
+  <!-- Songs -->
+  <section class="side side-list" aria-labelledby="listHeading">
+    <div class="side-title-row">
+      <h2 id="listHeading" class="side-title">Songs (<span id="songCount">0</span>)</h2>
+      <button id="clearBtn" class="link-btn" disabled>Clear all</button>
+    </div>
+    <ul id="songList" class="song-list"></ul>
+    <p id="songListEmpty" class="empty-note">Nothing plotted yet.</p>
+  </section>
+
+  <footer class="side side-foot">
+    Made by Dominic Bankovitch. Lyrics via <a href="https://lrclib.net" target="_blank" rel="noopener">LRCLIB</a>.
+  </footer>
+
+  <!-- The compass -->
+  <main class="stage" aria-label="Compass">
+    <div class="compass-wrap">
+      <svg id="graph" viewBox="-52 -48 804 796" role="img" aria-labelledby="graphTitle">
+        <title id="graphTitle">Songs plotted on the compass</title>
+        <g class="quads">
+          <rect class="quad q-tl" x="0" y="0" width="350" height="350" />
+          <rect class="quad q-tr" x="350" y="0" width="350" height="350" />
+          <rect class="quad q-bl" x="0" y="350" width="350" height="350" />
+          <rect class="quad q-br" x="350" y="350" width="350" height="350" />
+        </g>
+        <g id="gridLines" class="grid-lines"></g>
+        <g class="axes">
+          <line x1="350" y1="0" x2="350" y2="700" />
+          <line x1="0" y1="350" x2="700" y2="350" />
+        </g>
+        <rect class="frame" x="0" y="0" width="700" height="700" />
+        <g class="flairs">
+          <text id="flairTL" class="flair" x="10" y="12" dominant-baseline="hanging"></text>
+          <text id="flairTR" class="flair" x="690" y="12" text-anchor="end" dominant-baseline="hanging"></text>
+          <text id="flairBL" class="flair" x="10" y="688"></text>
+          <text id="flairBR" class="flair" x="690" y="688" text-anchor="end"></text>
+        </g>
+        <g class="poles">
+          <text id="labelYPos" class="pole" x="350" y="-16" text-anchor="middle">Angry</text>
+          <text id="labelYNeg" class="pole" x="350" y="716" text-anchor="middle" dominant-baseline="hanging">Calm</text>
+          <text id="labelXNeg" class="pole" x="-18" y="350" text-anchor="middle" transform="rotate(-90 -18 350)">Sad</text>
+          <text id="labelXPos" class="pole" x="718" y="350" text-anchor="middle" transform="rotate(90 718 350)">Happy</text>
+        </g>
+        <g id="songLayer"></g>
+      </svg>
+      <div id="emptyState" class="empty-state">
+        <p>Name four feelings and generate the compass.</p>
+      </div>
     </div>
 
+    <section class="result" aria-live="polite" aria-label="Result">
+      <div id="resultBody" class="result-body">
+        <p class="result-hint">Your result will appear here.</p>
+      </div>
+      <button id="saveBtn" class="btn btn-secondary" disabled>
+        <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5v8.5M4.5 6.5 8 10l3.5-3.5M2 11.5v3h12v-3" /></svg>
+        Save image
+      </button>
+    </section>
+  </main>
 
-    <div>
-      <label>X+ Axis</label>
-      <input type="text" id="xPos" placeholder="e.g. Happy" />
-    </div>
-    <div>
-      <label>X− Axis</label>
-      <input type="text" id="xNeg" placeholder="e.g. Sad" />
-    </div>
-    <div>
-      <label>Y+ Axis</label>
-      <input type="text" id="yPos" placeholder="e.g. Angry" />
-    </div>
-    <div>
-      <label>Y− Axis</label>
-      <input type="text" id="yNeg" placeholder="e.g. Calm" />
-    </div>
-    <div>
-      <button id="generateBtn">Generate Axes</button>
-    </div>
-    <div id="axisLoadingBar" class="loading-bar-container">
-      <div class="loading-bar"></div>
+  <!-- How it works -->
+  <div id="tutorialOverlay" class="modal-root" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
+    <div class="modal-backdrop overlay-backdrop"></div>
+    <div class="modal">
+      <button class="modal-close" id="closeTutorialBtn" aria-label="Close">
+        <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" /></svg>
+      </button>
+      <h2 id="aboutTitle" class="modal-title">How it works</h2>
+      <p>The Musical Compass works like the political compass, except the questions are lyrics and you choose the axes.</p>
+      <ol>
+        <li>Name a feeling for each direction. A language model writes hundreds of short phrases for each word.</li>
+        <li>Those phrases are turned into embeddings, and a linear classifier finds the direction that separates each pair, like Sad from Happy.</li>
+        <li>Add a song. Its lyrics are looked up on LRCLIB (or pasted by you), embedded line by line, and projected onto both directions.</li>
+        <li>The result is two scores from −10 to +10 and a quadrant. The sound of a song doesn't count, only its words.</li>
+      </ol>
+      <p class="modal-meta">Built by Dominic Bankovitch · <a href="mailto:dbankovitch@gmail.com">dbankovitch@gmail.com</a></p>
     </div>
   </div>
 
-  <div id="tutorialOverlay" class="overlay-screen">
-  <div class="overlay-backdrop"></div>
-  <div class="overlay-content">
-    <button class="close-overlay" id="closeTutorialBtn">×</button>
-    <h2>About Musical Compass</h2>
-    <p><strong>Musical Compass</strong> is an interactive tool that lets you explore songs based on their emotional meaning, not just genre or popularity.</p>
-    <p>Instead of organizing music by playlists or artists, this app maps songs into a 2D space defined by <strong>your chosen emotional axes</strong> — like <em>Happy–Sad</em> or <em>Calm–Angry</em>.</p>
-    <p>This 2D space is based entirely on the lyrics of each song. An upbeat, cheerful-sounding track might be positioned as “sad” if its lyrics carry a somber message.</p>
-    <ol>
-      <li>You define the axes</li>
-      <li>Add songs and lyrics</li>
-      <li>The lyrics are processed using advanced language models</li>
-      <li>Songs are placed on the grid based on meaning</li>
-    </ol>
-    <p>This tool was created by Dominic Bankovitch. Thanks for checking it out!</p>
-    <p>Email me: dbankovitch@gmail.com</p>
-  </div>
-</div>
-  
+  <div id="toasts" class="toasts" aria-live="polite"></div>
 
-  <div class="graph-container">
-  <img src="assets/logo.png" alt="Musical Compass Logo" />
-  <svg id="graph" width="700" height="700">
-    <!-- Axis lines -->
-    <line x1="350" y1="0" x2="350" y2="700" stroke="#ccc" stroke-dasharray="5" />
-    <line x1="0" y1="350" x2="700" y2="350" stroke="#ccc" stroke-dasharray="5" />
-  </svg>
-</div>
-
-  <div class="inputs">
-
-    <div class="song-input">
-      <h3>Add a Song</h3>
-      <label for="songTitle">Title</label>
-      <input type="text" id="songTitle" placeholder="Song Title (e.g. Creep)" />
-      <label for="artistName">Artist Name</label>
-      <input type="text" id="artistName" placeholder="Artist (e.g. Radiohead)" />
-        <label for="songColor">Dot Color</label>
-      <input type="color" id="songColor" value="808080">
-      
-      <button id="addSongBtn">Add Song</button>
-      
-    </div>
-
-    <div id="songSpinner" class="spinner" style="display: none;"></div>
-
-    <div id="playlistSpinner" class="spinner" style="display: none;"></div>
-
-    <div class="clear-input">
-      <h3>Clear Songs</h3>
-      <button id="clearBtn">Clear Songs</button>
-    </div>
-
-  </div>
- 
-  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
   <script src="script.js"></script>
-  
-
 </body>
 </html>

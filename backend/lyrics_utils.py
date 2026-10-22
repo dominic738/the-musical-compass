@@ -16,7 +16,9 @@ def clean_lyrics(text):
     text = re.sub(r'^\d+\s+Contributors.*$', '', text, flags=re.MULTILINE)
     text = text.replace('—', ' — ').replace('–', ' – ')
     text = re.sub(r'\[(.*?)\]', '', text)
-    text = re.sub(r'[^a-zA-Z\s\-]', '', text, flags=re.DOTALL)
+    text = text.replace('’', "'").replace('‘', "'")
+    # Keep letters from any script (accents, CJK, Cyrillic...) plus apostrophes and hyphens
+    text = re.sub(r"[^\w\s'\-]|[\d_]", '', text)
     text = '\n'.join(re.sub(r'\s+', ' ', line).strip() for line in text.split('\n'))
 
     return text

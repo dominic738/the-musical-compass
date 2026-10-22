@@ -1,6 +1,7 @@
 import lyrics_utils as lu
 import numpy as np
 import re
+import hashlib
 from collections import Counter
 from sklearn.svm import LinearSVC
 from sklearn.metrics.pairwise import cosine_similarity
@@ -22,6 +23,8 @@ phrase_index = pc.Index("phrase-embeddings")
 
 EMBEDDING_MODEL = "text-embedding-3-small"
 EMBEDDING_DIM = 1536
+# Pasted lyrics are cached for everyone, so reject obviously incomplete pastes
+MIN_LYRIC_LINES = 4
 
 
 def get_openai_embeddings(texts, batch_size=100):
@@ -61,6 +64,20 @@ def sigmoid_scaled(x, scale=30):
     return 2 * ((1 / (1 + np.exp(-x * scale))) - 0.5)
 
 
+def make_song_id(title, artist):
+    """
+    Stable Pinecone ID for a song.
+    ASCII titles keep the original readable ID so existing cache entries still match.
+    Non-ASCII titles get a hash suffix so e.g. two Japanese titles by the same
+    artist don't collapse to the same ID once non-ASCII characters are stripped.
+    """
+    raw = f"{title.strip()}__{artist.strip()}".replace(" ", "_").lower()
+    song_id = re.sub(r'[^a-zA-Z0-9_-]', '', raw)
+    if any(ord(c) > 127 for c in raw):
+        song_id += "_" + hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
+    return song_id
+
+
 def count_lines(lines):
     """Count duplicate lines"""
     return Counter(lines)
@@ -95,12 +112,18 @@ def compute_axis_svm(axis1_embeddings, axis2_embeddings, filter_emb=True):
     X = np.vstack([axis1_embeddings, axis2_embeddings])
     y = np.array([1] * len(axis1_embeddings) + [0] * len(axis2_embeddings))
     
-    clf = SGDClassifier(loss="hinge", max_iter=5000, n_jobs=-1)
+    clf = SGDClassifier(loss="hinge", max_iter=5000, random_state=42)
     clf.fit(X, y)
     axis = clf.coef_.flatten()
     axis = axis / np.linalg.norm(axis)
-    
-    return axis
+
+    # Embeddings share a large common component, so a raw dot product is never
+    # centred on zero. Shift so the midpoint between the two phrase clusters
+    # lands on the origin of the compass.
+    midpoint = (axis1_embeddings.mean(axis=0) + axis2_embeddings.mean(axis=0)) / 2
+    offset = -float(np.dot(axis, midpoint))
+
+    return axis, offset
 
 def get_weighted_embedding_from_lyrics(title, artist, lyrics_text):
     """
@@ -112,8 +135,7 @@ def get_weighted_embedding_from_lyrics(title, artist, lyrics_text):
         raise ValueError("Received HTML instead of lyrics text")
 
     # 1. Create stable ID
-    song_id = f"{title}__{artist}".replace(" ", "_").lower()
-    song_id = re.sub(r'[^a-zA-Z0-9_-]', '', song_id)
+    song_id = make_song_id(title, artist)
 
     # 2. Check Pinecone cache
     try:
@@ -133,12 +155,17 @@ def get_weighted_embedding_from_lyrics(title, artist, lyrics_text):
 
     if len(unique_lines) == 0 or np.sum(counts) == 0:
         return None
+    if len(cleaned_lines) < MIN_LYRIC_LINES:
+        raise ValueError(f"Lyrics look incomplete: please paste the full song (at least {MIN_LYRIC_LINES} lines).")
 
     # 4. EMBED
     embeddings = get_openai_embeddings(unique_lines)
     weighted_embedding = np.average(
         embeddings, axis=0, weights=counts
     )
+    # Phrases are unit length; an average of unit vectors is shorter.
+    # Normalise so songs project onto the axes on the same scale as phrases.
+    weighted_embedding = normalize(weighted_embedding)
 
     # 5. SAVE TO PINECONE
     song_index.upsert([{
@@ -146,7 +173,9 @@ def get_weighted_embedding_from_lyrics(title, artist, lyrics_text):
         "values": weighted_embedding.tolist(),
         "metadata": {
             "title": title,
-            "artist": artist
+            "artist": artist,
+            # Lets a bad submission be traced and removed later
+            "lyrics_sha1": hashlib.sha1(lyrics_text.encode("utf-8")).hexdigest(),
         }
     }])
 

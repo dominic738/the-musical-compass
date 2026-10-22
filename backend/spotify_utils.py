@@ -9,12 +9,18 @@ load_dotenv()
 CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
 CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
 
-if not CLIENT_ID and not CLIENT_SECRET:
-    raise RuntimeError("CLIENT_ID and/or CLIENT_SECRET not found. Make sure .env is loaded properly.")
+_sp = None
 
-auth_manager = SpotifyClientCredentials(client_id=CLIENT_ID, client_secret=CLIENT_SECRET)
 
-sp = spotipy.Spotify(auth_manager=auth_manager)
+def get_client():
+    """Create the Spotify client on first use so the app can start without Spotify credentials."""
+    global _sp
+    if _sp is None:
+        if not CLIENT_ID or not CLIENT_SECRET:
+            raise RuntimeError("SPOTIFY_CLIENT_ID and/or SPOTIFY_CLIENT_SECRET not found. Make sure .env is loaded properly.")
+        auth_manager = SpotifyClientCredentials(client_id=CLIENT_ID, client_secret=CLIENT_SECRET)
+        _sp = spotipy.Spotify(auth_manager=auth_manager)
+    return _sp
 
 
 
@@ -33,6 +39,7 @@ def clean_track_name(name):
 
 
 def get_playlist(playlist_url):
+    sp = get_client()
     results = sp.playlist_items(playlist_url)
     song_d = {}
 

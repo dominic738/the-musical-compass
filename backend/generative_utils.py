@@ -1,6 +1,7 @@
 import re
 import openai
 import os
+import uuid
 import numpy as np
 from pinecone import Pinecone
 from dotenv import load_dotenv
@@ -39,24 +40,54 @@ def get_openai_embeddings(texts, batch_size=100):
     return np.array(all_embeddings)
 
 
+MAX_CACHED_PHRASES = 500
+FETCH_BATCH_SIZE = 100
+
+
+def _field(obj, name):
+    """Read a field from a Pinecone response object or plain dict."""
+    if isinstance(obj, dict):
+        return obj.get(name)
+    return getattr(obj, name, None)
+
+
 def load_cached_phrases(word):
     """
     Load cached phrase embeddings from Pinecone.
-    Returns numpy array of embeddings if found, None otherwise.
+    Returns numpy array of embeddings if a complete set is found, None otherwise.
     """
     try:
-        # Try to fetch vectors by ID prefix (happy_0, happy_1, etc.)
-        # Pinecone doesn't support prefix search, so we try common range
-        ids_to_fetch = [f"{word.lower()}_{i}" for i in range(500)]  # Max 500 phrases per word
-        
-        result = phrase_index.fetch(ids=ids_to_fetch)
-        
-        if result and result.get('vectors'):
-            embeddings = [vec['values'] for vec in result['vectors'].values()]
-            if embeddings:
-                embeddings_array = np.array(embeddings)
-                print(f"✓ Loaded {len(embeddings)} cached phrase embeddings for '{word}' from Pinecone")
-                return embeddings_array
+        # Pinecone doesn't support prefix search, so fetch the known ID range in
+        # small batches (one huge GET can exceed URL length limits).
+        ids_to_fetch = [f"{word.lower()}_{i}" for i in range(MAX_CACHED_PHRASES)]
+        vectors = {}
+        for i in range(0, len(ids_to_fetch), FETCH_BATCH_SIZE):
+            result = phrase_index.fetch(ids=ids_to_fetch[i:i + FETCH_BATCH_SIZE])
+            batch = _field(result, 'vectors') or {}
+            if not batch:
+                break  # IDs are contiguous, so an empty batch means we're past the end
+            vectors.update(batch)
+
+        if not vectors:
+            return None
+
+        # Only trust vectors from the same save as word_0, and only if all of them
+        # made it in. Older entries without this metadata are accepted as-is.
+        first_meta = _field(vectors.get(f"{word.lower()}_0"), 'metadata') or {}
+        generation = first_meta.get('generation')
+        expected = first_meta.get('total')
+        if generation is not None:
+            vectors = {
+                vid: vec for vid, vec in vectors.items()
+                if (_field(vec, 'metadata') or {}).get('generation') == generation
+            }
+            if expected is not None and len(vectors) != int(expected):
+                print(f"Incomplete phrase cache for '{word}' ({len(vectors)}/{expected}), regenerating")
+                return None
+
+        embeddings = [_field(vec, 'values') for vec in vectors.values()]
+        print(f"✓ Loaded {len(embeddings)} cached phrase embeddings for '{word}' from Pinecone")
+        return np.array(embeddings)
     except Exception as e:
         print(f"Pinecone fetch error for '{word}': {e}")
     return None
@@ -65,16 +96,21 @@ def load_cached_phrases(word):
 def save_cached_phrases(word, embeddings):
     """
     Save phrase embeddings to Pinecone.
-    Each embedding gets stored as a separate vector.
+    Each embedding gets stored as a separate vector, tagged with a generation ID
+    and the total count so partial or stale sets can be detected on load.
     """
     try:
+        embeddings = embeddings[:MAX_CACHED_PHRASES]
+        generation = uuid.uuid4().hex
         vectors = []
         for i, embedding in enumerate(embeddings):
             vectors.append({
                 "id": f"{word.lower()}_{i}",
                 "values": embedding.tolist() if isinstance(embedding, np.ndarray) else embedding,
                 "metadata": {
-                    "word": word.lower()
+                    "word": word.lower(),
+                    "generation": generation,
+                    "total": len(embeddings),
                 }
             })
         

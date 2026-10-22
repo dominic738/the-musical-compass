@@ -1,0 +1,185 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-22T00:00:00Z",
+  "title": "Design System: The Musical Compass",
+  "extensions": {
+    "colorMeta": {
+      "quadrant-red": { "role": "primary", "displayName": "Quadrant Red", "canonical": "#FF7575", "cssVar": "--q-tl", "tonalRamp": ["oklch(15% 0.06 22)", "oklch(26% 0.10 22)", "oklch(38% 0.14 22)", "oklch(49% 0.17 22)", "oklch(61% 0.18 22)", "oklch(72% 0.17 22)", "oklch(84% 0.09 22)", "oklch(95% 0.03 22)"] },
+      "quadrant-blue": { "role": "primary", "displayName": "Quadrant Blue", "canonical": "#42AAFF", "cssVar": "--q-tr", "tonalRamp": ["oklch(15% 0.05 250)", "oklch(26% 0.09 250)", "oklch(38% 0.12 250)", "oklch(49% 0.15 250)", "oklch(61% 0.16 250)", "oklch(71% 0.15 250)", "oklch(84% 0.08 250)", "oklch(95% 0.03 250)"] },
+      "quadrant-green": { "role": "primary", "displayName": "Quadrant Green", "canonical": "#9AED97", "cssVar": "--q-bl", "tonalRamp": ["oklch(15% 0.04 145)", "oklch(26% 0.07 145)", "oklch(38% 0.10 145)", "oklch(49% 0.13 145)", "oklch(61% 0.15 145)", "oklch(72% 0.16 145)", "oklch(88% 0.14 145)", "oklch(95% 0.05 145)"] },
+      "quadrant-violet": { "role": "primary", "displayName": "Quadrant Violet", "canonical": "#C09AEC", "cssVar": "--q-br", "tonalRamp": ["oklch(15% 0.05 305)", "oklch(26% 0.08 305)", "oklch(38% 0.11 305)", "oklch(49% 0.13 305)", "oklch(61% 0.13 305)", "oklch(75% 0.12 305)", "oklch(85% 0.07 305)", "oklch(95% 0.02 305)"] },
+      "ink": { "role": "neutral", "displayName": "Ink", "canonical": "#000000", "cssVar": "--ink" },
+      "ink-soft": { "role": "neutral", "displayName": "Soft Ink", "canonical": "#4D4D4D", "cssVar": "--ink-2" },
+      "muted": { "role": "neutral", "displayName": "Muted Grey", "canonical": "#6B6B6B", "cssVar": "--muted" },
+      "paper": { "role": "neutral", "displayName": "Paper", "canonical": "#FFFFFF", "cssVar": "--paper" },
+      "sidebar-grey": { "role": "neutral", "displayName": "Sidebar Grey", "canonical": "#F2F2F2", "cssVar": "--side" },
+      "sidebar-rule": { "role": "neutral", "displayName": "Sidebar Rule", "canonical": "#CFCFCF", "cssVar": "--side-line" },
+      "field-rule": { "role": "neutral", "displayName": "Field Rule", "canonical": "#9A9A9A", "cssVar": "--field-line" },
+      "grid-line": { "role": "neutral", "displayName": "Grid Line", "canonical": "rgba(0, 0, 0, 0.16)", "cssVar": "--grid" },
+      "danger": { "role": "neutral", "displayName": "Danger", "canonical": "#C40000", "cssVar": "--danger" },
+      "dot-red": { "role": "secondary", "displayName": "Dot Red (default)", "canonical": "#E10600" },
+      "dot-black": { "role": "secondary", "displayName": "Dot Black", "canonical": "#111111" },
+      "dot-white": { "role": "secondary", "displayName": "Dot White", "canonical": "#FFFFFF" },
+      "dot-yellow": { "role": "secondary", "displayName": "Dot Yellow", "canonical": "#FFD400" },
+      "dot-orange": { "role": "secondary", "displayName": "Dot Orange", "canonical": "#FF7A00" },
+      "dot-navy": { "role": "secondary", "displayName": "Dot Navy", "canonical": "#1638A8" }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "The two signed scores in the result readout." },
+      "headline": { "displayName": "Headline", "purpose": "Wordmark and dialog titles." },
+      "pole": { "displayName": "Pole", "purpose": "Pole words outside each chart edge, screen-sized via --s." },
+      "title": { "displayName": "Title", "purpose": "Song name in the readout; build card title." },
+      "section": { "displayName": "Section", "purpose": "Sidebar step headings, buttons, chart notice, readout flair." },
+      "body": { "displayName": "Body", "purpose": "Inputs and default text; tabular figures." },
+      "body-small": { "displayName": "Body Small", "purpose": "Song rows, hints, secondary buttons, toasts." },
+      "label": { "displayName": "Label", "purpose": "Field labels and corner flair names." }
+    },
+    "shadows": [
+      { "name": "toast", "value": "0 6px 18px rgba(0, 0, 0, 0.2)", "purpose": "Only shadow in the build, on transient toasts. A lone exception; the system is otherwise flat." }
+    ],
+    "borders": [
+      { "name": "frame", "value": "2px solid #000000", "purpose": "Chart frame and axes, buttons, dialogs, build card, chart notice." },
+      { "name": "field", "value": "1px solid #9A9A9A", "purpose": "Inputs and textareas at rest." },
+      { "name": "selected-row", "value": "1px solid #000000", "purpose": "Selected song row; secondary button." },
+      { "name": "section-rule", "value": "1px solid #CFCFCF", "purpose": "Dividers between sidebar panels." },
+      { "name": "focus-ring", "value": "2px solid #000000; outline-offset: 2px", "purpose": "Global :focus-visible." }
+    ],
+    "motion": [
+      { "name": "button-invert", "value": "background-color 0.12s, color 0.12s", "purpose": "Button hover inversion to black." },
+      { "name": "press", "value": "translateY(1px)", "purpose": "Button :active." },
+      { "name": "rise-in", "value": "0.22s cubic-bezier(0.16, 1, 0.3, 1); from opacity 0, translateY(8px)", "purpose": "Dialog entry (0.2s for toasts)." },
+      { "name": "fade-out", "value": "opacity 0.15s (dialogs), 0.2s (toasts)", "purpose": "Exit." },
+      { "name": "dot-drop", "value": "700ms, ease 1 - 2^(-10t)", "purpose": "A new song dot travels from the chart centre to its place." },
+      { "name": "progress-creep", "value": "width 8s cubic-bezier(0.1, 0.6, 0.3, 1) to 85%", "purpose": "Build progress bar while waiting; snaps to 100% over 0.25s on complete." },
+      { "name": "spin", "value": "0.7s linear infinite", "purpose": "Loading rings in buttons and progress rows." },
+      { "name": "reduced-motion", "value": "animation/transition durations 0.01ms", "purpose": "prefers-reduced-motion: reduce; dot drop becomes instant." }
+    ],
+    "breakpoints": [
+      { "name": "stack", "value": "900px", "purpose": "Single column: masthead, Axes, chart, Add a song, Songs, footer. Chart max 640px, not sticky." },
+      { "name": "narrow", "value": "420px", "purpose": "Wordmark 20px; Save image full width." }
+    ],
+    "layout": {
+      "sidebarWidth": "360px",
+      "chartWidth": "max(320px, min(800px, calc(100vh - 175px)))",
+      "chartViewBox": "-52 -48 804 796 around a 700-unit plot square",
+      "grid": "20 x 20 units (-10..+10), centre lines drawn as axes",
+      "plotInset": "6.47% horizontal, 6.03% vertical",
+      "exportWidth": "1600px"
+    }
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Black-bordered square button; inverts to black on hover. Generate compass, Add song, Place song.",
+      "html": "<button class=\"ds-btn\">Generate compass</button>",
+      "css": ".ds-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%; border: 2px solid #000; border-radius: 0; padding: 8px 14px; font: 700 15px/1.45 Arimo, Arial, Helvetica, sans-serif; background: #fff; color: #000; cursor: pointer; transition: background-color 0.12s, color 0.12s; } .ds-btn:hover { background: #000; color: #fff; } .ds-btn:active { transform: translateY(1px); } .ds-btn:focus-visible { outline: 2px solid #000; outline-offset: 2px; } .ds-btn:disabled { border-color: #9A9A9A; color: #6B6B6B; background: #fff; cursor: not-allowed; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "1px-bordered regular-weight button with a leading line icon. Save image.",
+      "html": "<button class=\"ds-btn-secondary\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"square\" aria-hidden=\"true\"><path d=\"M8 1.5v8.5M4.5 6.5 8 10l3.5-3.5M2 11.5v3h12v-3\"/></svg>Save image</button>",
+      "css": ".ds-btn-secondary { display: inline-flex; align-items: center; gap: 8px; border: 1px solid #000; border-radius: 0; padding: 7px 12px; font: 400 14px/1.45 Arimo, Arial, Helvetica, sans-serif; background: #fff; color: #000; cursor: pointer; transition: background-color 0.12s, color 0.12s; } .ds-btn-secondary:hover { background: #000; color: #fff; } .ds-btn-secondary:focus-visible { outline: 2px solid #000; outline-offset: 2px; }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input-text",
+      "description": "Square white field with a bold label above; focus draws a 2px black edge.",
+      "html": "<label class=\"ds-field\"><span class=\"ds-field-label\">Up</span><input class=\"ds-input\" type=\"text\" placeholder=\"Angry\"></label>",
+      "css": ".ds-field { display: block; font-family: Arimo, Arial, Helvetica, sans-serif; } .ds-field-label { display: block; font-size: 12.5px; font-weight: 700; margin-bottom: 4px; color: #000; } .ds-input { width: 100%; box-sizing: border-box; background: #fff; border: 1px solid #9A9A9A; border-radius: 0; padding: 7px 9px; font: 400 15px Arimo, Arial, Helvetica, sans-serif; color: #000; } .ds-input::placeholder { color: #6B6B6B; } .ds-input:hover { border-color: #4D4D4D; } .ds-input:focus { outline: none; border-color: #000; box-shadow: inset 0 0 0 1px #000; }"
+    },
+    {
+      "name": "Flair Chip",
+      "kind": "chip",
+      "refersTo": "flair-chip-result",
+      "description": "Square quadrant-colour chip, always beside the flair name.",
+      "html": "<p class=\"ds-flair\"><span class=\"ds-chip\" style=\"background:#FF7575\"></span>AngrySad</p>",
+      "css": ".ds-flair { display: inline-flex; align-items: center; gap: 8px; margin: 0; font: 700 15px Arimo, Arial, Helvetica, sans-serif; color: #000; } .ds-chip { width: 16px; height: 16px; border: 2px solid #000; box-sizing: border-box; }"
+    },
+    {
+      "name": "Song Row",
+      "kind": "custom",
+      "refersTo": "song-row-selected",
+      "description": "Sidebar list row: chip, title and artist, signed scores, remove. Selected rows turn white with a black border.",
+      "html": "<ul class=\"ds-list\"><li class=\"ds-row\"><span class=\"ds-row-chip\" style=\"background:#9AED97\"></span><span class=\"ds-row-name\"><b>Creep</b> <span>Radiohead</span></span><span class=\"ds-row-score\">−4.8, −1.8</span></li><li class=\"ds-row is-selected\"><span class=\"ds-row-chip\" style=\"background:#FF7575\"></span><span class=\"ds-row-name\"><b>Smells Like Teen Spirit</b> <span>Nirvana</span></span><span class=\"ds-row-score\">−4.1, +3.7</span></li></ul>",
+      "css": ".ds-list { list-style: none; margin: 0; padding: 12px; background: #F2F2F2; font-family: Arimo, Arial, Helvetica, sans-serif; font-variant-numeric: tabular-nums; } .ds-row { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 6px 8px; border: 1px solid transparent; cursor: pointer; font-size: 14px; } .ds-row:hover { background: rgba(0, 0, 0, 0.04); } .ds-row.is-selected { background: #fff; border-color: #000; } .ds-row-chip { width: 12px; height: 12px; border: 1.5px solid #000; box-sizing: border-box; } .ds-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .ds-row-name span { color: #4D4D4D; } .ds-row-score { font-size: 12.5px; color: #4D4D4D; }"
+    },
+    {
+      "name": "Dot Swatches",
+      "kind": "custom",
+      "refersTo": "dot-swatch",
+      "description": "Round colour pickers for song dots; selected gets a black ring 5px out.",
+      "html": "<div class=\"ds-swatches\"><button class=\"ds-swatch is-on\" style=\"background:#E10600\" aria-label=\"Red\"></button><button class=\"ds-swatch\" style=\"background:#111111\" aria-label=\"Black\"></button><button class=\"ds-swatch\" style=\"background:#FFFFFF\" aria-label=\"White\"></button><button class=\"ds-swatch\" style=\"background:#FFD400\" aria-label=\"Yellow\"></button><button class=\"ds-swatch\" style=\"background:#FF7A00\" aria-label=\"Orange\"></button><button class=\"ds-swatch\" style=\"background:#1638A8\" aria-label=\"Navy\"></button><button class=\"ds-swatch\" style=\"background:conic-gradient(#FF7575,#42AAFF,#C09AEC,#9AED97,#FF7575)\" aria-label=\"Custom\"></button></div>",
+      "css": ".ds-swatches { display: flex; flex-wrap: wrap; gap: 8px; padding: 6px; } .ds-swatch { position: relative; width: 24px; height: 24px; padding: 0; border-radius: 50%; border: 1.5px solid #000; cursor: pointer; } .ds-swatch.is-on::after { content: \"\"; position: absolute; inset: -5px; border: 2px solid #000; border-radius: 50%; } .ds-swatch:focus-visible { outline: 2px solid #000; outline-offset: 2px; }"
+    },
+    {
+      "name": "Result Readout",
+      "kind": "custom",
+      "refersTo": "flair-chip-result",
+      "description": "The signature: a political-compass test result per song, two signed scores and a quadrant flair.",
+      "html": "<section class=\"ds-result\"><p class=\"ds-result-title\">Smells Like Teen Spirit <span>by Nirvana</span></p><dl class=\"ds-scores\"><div><dt>Sad ↔ Happy</dt><dd>−4.09</dd></div><div><dt>Calm ↔ Angry</dt><dd>+3.71</dd></div></dl><p class=\"ds-result-flair\"><span style=\"background:#FF7575\"></span>AngrySad</p></section>",
+      "css": ".ds-result { font-family: Arimo, Arial, Helvetica, sans-serif; color: #000; font-variant-numeric: tabular-nums; background: #fff; padding: 12px; } .ds-result p, .ds-result dl, .ds-result dd { margin: 0; } .ds-result-title { font-size: 18px; font-weight: 700; } .ds-result-title span { font-weight: 400; color: #4D4D4D; } .ds-scores { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px 36px; } .ds-scores dt { font-size: 13.5px; font-weight: 700; color: #4D4D4D; } .ds-scores dd { font-size: 30px; font-weight: 700; line-height: 1.1; letter-spacing: -0.02em; } .ds-result-flair { margin-top: 12px; display: inline-flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 700; } .ds-result-flair span { width: 16px; height: 16px; border: 2px solid #000; box-sizing: border-box; }"
+    },
+    {
+      "name": "Compass Chart",
+      "kind": "custom",
+      "refersTo": "chart",
+      "description": "Four flat quadrants, 20x20 unit grid, black frame and axes, bold pole words, corner flairs, black-stroked dots.",
+      "html": "<svg class=\"ds-compass\" viewBox=\"-52 -48 804 796\" role=\"img\" aria-label=\"Compass\"><rect x=\"0\" y=\"0\" width=\"350\" height=\"350\" fill=\"#FF7575\"/><rect x=\"350\" y=\"0\" width=\"350\" height=\"350\" fill=\"#42AAFF\"/><rect x=\"0\" y=\"350\" width=\"350\" height=\"350\" fill=\"#9AED97\"/><rect x=\"350\" y=\"350\" width=\"350\" height=\"350\" fill=\"#C09AEC\"/><g stroke=\"rgba(0,0,0,0.16)\" stroke-width=\"1\"><path d=\"M35 0V700M70 0V700M105 0V700M140 0V700M175 0V700M210 0V700M245 0V700M280 0V700M315 0V700M385 0V700M420 0V700M455 0V700M490 0V700M525 0V700M560 0V700M595 0V700M630 0V700M665 0V700M0 35H700M0 70H700M0 105H700M0 140H700M0 175H700M0 210H700M0 245H700M0 280H700M0 315H700M0 385H700M0 420H700M0 455H700M0 490H700M0 525H700M0 560H700M0 595H700M0 630H700M0 665H700\"/></g><path d=\"M350 0V700M0 350H700\" stroke=\"#000\" stroke-width=\"3\"/><rect x=\"0\" y=\"0\" width=\"700\" height=\"700\" fill=\"none\" stroke=\"#000\" stroke-width=\"3\"/><g font-family=\"Arimo, Arial, sans-serif\" font-weight=\"700\"><text x=\"350\" y=\"-16\" text-anchor=\"middle\" font-size=\"30\">Angry</text><text x=\"350\" y=\"740\" text-anchor=\"middle\" font-size=\"30\">Calm</text><text x=\"10\" y=\"30\" font-size=\"18\" fill-opacity=\"0.82\">AngrySad</text><text x=\"690\" y=\"688\" text-anchor=\"end\" font-size=\"18\" fill-opacity=\"0.82\">CalmHappy</text></g><circle cx=\"265\" cy=\"262\" r=\"12\" fill=\"#1638A8\" stroke=\"#000\" stroke-width=\"3\"/><text x=\"285\" y=\"268\" font-family=\"Arimo, Arial, sans-serif\" font-size=\"18\" font-weight=\"700\" paint-order=\"stroke\" stroke=\"#fff\" stroke-width=\"5\" stroke-linejoin=\"round\">Smells Like Teen Spirit</text></svg>",
+      "css": ".ds-compass { display: block; width: 100%; max-width: 420px; height: auto; overflow: visible; background: #fff; }"
+    },
+    {
+      "name": "Dialog",
+      "kind": "card",
+      "refersTo": "dialog",
+      "description": "Square white dialog with a 2px black border; quiet Cancel and primary submit.",
+      "html": "<div class=\"ds-dialog\"><h2>Paste the lyrics</h2><p>No lyrics found. Paste them and the song goes on the compass.</p><div class=\"ds-actions\"><button class=\"ds-quiet\">Cancel</button><button class=\"ds-submit\">Place song</button></div></div>",
+      "css": ".ds-dialog { max-width: 500px; background: #fff; border: 2px solid #000; padding: 26px 28px; font-family: Arimo, Arial, Helvetica, sans-serif; color: #000; } .ds-dialog h2 { margin: 0 0 12px; font-size: 22px; font-weight: 700; letter-spacing: -0.02em; } .ds-dialog p { margin: 0 0 12px; color: #4D4D4D; font-size: 15px; line-height: 1.45; } .ds-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; } .ds-quiet, .ds-submit { border: 2px solid #000; border-radius: 0; padding: 8px 14px; font: 700 15px Arimo, Arial, sans-serif; background: #fff; color: #000; cursor: pointer; transition: background-color 0.12s, color 0.12s; } .ds-quiet { border-color: transparent; } .ds-quiet:hover { background: rgba(0, 0, 0, 0.07); } .ds-submit:hover { background: #000; color: #fff; } .ds-quiet:focus-visible, .ds-submit:focus-visible { outline: 2px solid #000; outline-offset: 2px; }"
+    },
+    {
+      "name": "Toast",
+      "kind": "custom",
+      "refersTo": "toast",
+      "description": "Black notice at bottom centre; errors switch to danger red.",
+      "html": "<div class=\"ds-toasts\"><div class=\"ds-toast\">Saved musical-compass.png</div><div class=\"ds-toast is-error\">Fill in all four directions first.</div></div>",
+      "css": ".ds-toasts { display: grid; gap: 8px; justify-items: center; } .ds-toast { background: #000; color: #fff; padding: 9px 14px; font: 400 14px Arimo, Arial, Helvetica, sans-serif; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2); } .ds-toast.is-error { background: #C40000; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Quadrant Meme, Played Straight",
+    "overview": "The whole system is the political compass chart, rebuilt with care rather than parodied. A white page, a square chart with four flat pastel quadrants, a faint unit grid, a hard black frame and black axes, bold Arial-lineage lettering outside each edge. Every other surface is a plain utility page around it: a grey sidebar of forms on the left, black-bordered buttons, square inputs. Nothing is rounded except the things that are dots.\n\nDensity is that of a worksheet: compact 15px text, tight 10px field gaps, the chart as large as the viewport allows. The interface refuses the card-dashboard idiom (rounded panels, soft neutral greys, one brand accent, drop shadows). Colour comes only from the four quadrants and the user's dot colours; the chrome is black, white and grey.\n\nThe signature is the result readout under the chart: each song is reported like a political compass test result, two signed scores on the −10 to +10 scale in large tabular figures and a meme-style quadrant flair (\"AngrySad\") with a square chip in its quadrant colour.",
+    "keyCharacteristics": [
+      "Four quadrant hues in their political-compass positions, used flat and at full strength.",
+      "Black 2px frame, black 2px axes, 1px grid at 16% black, one line per scale unit (20×20).",
+      "One typeface (Arimo, metric-compatible with Arial), bold for every label, tabular figures throughout.",
+      "Square corners on all chrome; circles only for data dots, colour swatches and spinners.",
+      "Flat: no elevation system. Depth is drawn with black borders."
+    ],
+    "rules": [
+      { "name": "The Four Corners Rule", "body": "Red top-left, blue top-right, green bottom-left, violet bottom-right, at exactly these values. The quadrant hues are the reference; they are never tinted, swapped or joined by a fifth accent.", "section": "colors" },
+      { "name": "The Colour Plus Word Rule", "body": "A quadrant is never identified by colour alone: every chip sits beside its flair name, and every quadrant prints its flair in its corner.", "section": "colors" },
+      { "name": "The One Face Rule", "body": "Arimo everywhere, including the chart's SVG text and the exported PNG (the font is embedded into the export). No second family, no display face.", "section": "typography" },
+      { "name": "The Tabular Figures Rule", "body": "`tabular-nums` is set on the body; every score lines up digit for digit.", "section": "typography" },
+      { "name": "The Screen-Size Chart Type Rule", "body": "Chart text, dots and strokes are multiplied by a scale variable so they keep their screen pixel size however large the chart is drawn.", "section": "typography" },
+      { "name": "The Drawn Border Rule", "body": "Anything that floats over the chart (notice, build card, dialog) is a white box with a 2px black border. Depth is drawn, never blurred.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do keep the four quadrant hues exact and in their political-compass corners.",
+      "Do pair every quadrant colour with its flair name, in the chart and in every list.",
+      "Do draw edges in black: 2px for the chart, buttons and floating boxes, 1px for inputs and selected rows.",
+      "Do set every label in bold Arimo and every number in tabular figures with a true minus sign.",
+      "Do size chart text and marks in screen pixels via the scale variable, so the chart reads the same at any size.",
+      "Do honour reduced motion: animations and transitions collapse to near zero and the dot drop becomes instant."
+    ],
+    "donts": [
+      "Don't round chrome; circles are only for dots, swatches and spinners.",
+      "Don't add shadows to panels, cards or dialogs; the toast shadow is the single exception.",
+      "Don't introduce a brand accent or a second typeface; colour belongs to the quadrants and the user's dots.",
+      "Don't tint, gradient or soften the quadrant fills (the custom-swatch wheel is the only gradient)."
+    ]
+  }
+}
