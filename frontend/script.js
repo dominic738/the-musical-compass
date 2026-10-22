@@ -299,6 +299,7 @@ function clearSongInputs() {
 
 const LRCLIB_URL = "https://lrclib.net/api/search";
 const LRCLIB_TIMEOUT_MS = 8000;
+const LRCLIB_RETRY_DELAY_MS = 1000;
 // Alternate recordings we shouldn't silently substitute for the original
 const ALT_VERSION_RE = /\b(live|acoustic|remix|demo|instrumental|karaoke|cover|unplugged|mix)\b/i;
 
@@ -313,38 +314,76 @@ function baseTitle(s) {
   return normalizeName(s.replace(/\s*[\(\[].*?[\)\]]/g, "").replace(/\s+-\s+.*$/, ""));
 }
 
+// "The Beatles" and "Beatles" are the same band
+function baseArtist(s) {
+  return normalizeName(s).replace(/^the /, "");
+}
+
+function editDistance(a, b) {
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+// Tolerates a typo or two ("Polo Asado"), but short names must match exactly
+// so "Hey" doesn't turn into "Hex"
+function nearlyEqual(a, b) {
+  if (a === b) return true;
+  const len = Math.min(a.length, b.length);
+  if (len < 5) return false;
+  return editDistance(a, b) <= (len < 10 ? 1 : 2);
+}
+
 function pickLrclibMatch(results, title, artist) {
-  const wantArtist = normalizeName(artist);
+  const wantArtist = baseArtist(artist);
   const candidates = results.filter(r => {
     if (r.instrumental || !r.plainLyrics) return false;
-    const gotArtist = normalizeName(r.artistName || "");
+    const gotArtist = baseArtist(r.artistName || "");
     // Allow "Artist feat. Someone" style credits
-    return gotArtist === wantArtist || gotArtist.startsWith(wantArtist + " ");
+    return nearlyEqual(gotArtist, wantArtist) || gotArtist.startsWith(wantArtist + " ");
   });
 
   const exact = candidates.find(r => normalizeName(r.trackName || "") === normalizeName(title));
   if (exact) return exact;
 
-  // Looser match only if it isn't a live/acoustic/etc. version the user didn't ask for
+  // Looser matches only if it isn't a live/acoustic/etc. version the user didn't ask for
   const userWantsAltVersion = ALT_VERSION_RE.test(title);
-  return candidates.find(r =>
-    baseTitle(r.trackName || "") === baseTitle(title) &&
-    (userWantsAltVersion || !ALT_VERSION_RE.test(r.trackName || ""))
-  ) || null;
+  const looseCandidates = candidates.filter(r =>
+    userWantsAltVersion || !ALT_VERSION_RE.test(r.trackName || "")
+  );
+  const want = baseTitle(title);
+  return looseCandidates.find(r => baseTitle(r.trackName || "") === want)
+    || looseCandidates.find(r => nearlyEqual(baseTitle(r.trackName || ""), want))
+    || null;
+}
+
+// LRCLIB returns 503 when it's overloaded; one retry usually gets through
+async function searchLrclib(params) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt) await new Promise(r => setTimeout(r, LRCLIB_RETRY_DELAY_MS));
+    const res = await fetch(`${LRCLIB_URL}?${new URLSearchParams(params)}`, {
+      // LRCLIB asks clients to identify themselves; browsers can't set User-Agent
+      headers: { "Lrclib-Client": "MusicalCompass (https://mymusicalcompass.com)" },
+      signal: AbortSignal.timeout(LRCLIB_TIMEOUT_MS),
+    });
+    if (res.ok) return res.json();
+    if (res.status !== 503) break;
+  }
+  return [];
 }
 
 // Returns plain lyrics text, or null if there's no confident match or LRCLIB is unreachable
 async function fetchLyricsFromLrclib(title, artist) {
   try {
-    const params = new URLSearchParams({ track_name: title, artist_name: artist });
-    const res = await fetch(`${LRCLIB_URL}?${params}`, {
-      // LRCLIB asks clients to identify themselves; browsers can't set User-Agent
-      headers: { "Lrclib-Client": "MusicalCompass (https://mymusicalcompass.com)" },
-      signal: AbortSignal.timeout(LRCLIB_TIMEOUT_MS),
-    });
-    if (!res.ok) return null;
-
-    const match = pickLrclibMatch(await res.json(), title, artist);
+    // Field search is precise; free-text search catches typos and title/artist mixups
+    let match = pickLrclibMatch(await searchLrclib({ track_name: title, artist_name: artist }), title, artist);
+    if (!match) match = pickLrclibMatch(await searchLrclib({ q: `${title} ${artist}` }), title, artist);
     if (!match) return null;
 
     console.log(`Lyrics from LRCLIB: ${match.trackName} — ${match.artistName} (id ${match.id})`);

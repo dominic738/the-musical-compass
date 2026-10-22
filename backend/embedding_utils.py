@@ -168,7 +168,7 @@ def get_weighted_embedding_from_lyrics(title, artist, lyrics_text):
     weighted_embedding = normalize(weighted_embedding)
 
     # 5. SAVE TO PINECONE
-    song_index.upsert([{
+    song_index.upsert(vectors=[{
         "id": song_id,
         "values": weighted_embedding.tolist(),
         "metadata": {
