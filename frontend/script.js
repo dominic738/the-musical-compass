@@ -361,9 +361,13 @@ function nearlyEqual(a, b) {
 }
 
 function pickLrclibMatch(results, title, artist) {
+  return pickTrackMatch(results.filter(r => !r.instrumental && r.plainLyrics), title, artist);
+}
+
+// Works for any results with trackName and artistName, which LRCLIB and iTunes share
+function pickTrackMatch(results, title, artist) {
   const wantArtist = baseArtist(artist);
   const candidates = results.filter(r => {
-    if (r.instrumental || !r.plainLyrics) return false;
     const gotArtist = baseArtist(r.artistName || "");
     // Allow "Artist feat. Someone" style credits
     return nearlyEqual(gotArtist, wantArtist) || gotArtist.startsWith(wantArtist + " ");
@@ -779,7 +783,9 @@ function plotSong(title, artist, rawX, rawY, color, { quiet = false, lyrics = nu
     id, title, artist, color, lyrics, score: { x: nx * 10, y: ny * 10 },
     circle, label, labelBox, leader, dot: { x: cx, y: cy },
     magnet: { x: 0, y: 0, vx: 0, vy: 0 },
+    itunes: undefined,  // preview and cover: undefined until looked up, null if none
   });
+  queueItunes(songs[songs.length - 1]);
   if (quiet) renderSongList();
   else selectSong(id);
   return id;
@@ -885,6 +891,7 @@ function removeSong(id) {
   song.circle.remove();
   song.label.remove();
   if (song.leader) song.leader.remove();
+  if (playingSongId === id) stopPreview();
   songs = songs.filter(s => s.id !== id);
   if (selectedId === id) {
     const last = songs[songs.length - 1];
@@ -902,6 +909,8 @@ function clearSongs() {
   }
   songs = [];
   selectedId = null;
+  itunesQueue = [];
+  stopPreview();
   renderSongList();
   renderResult(null);
 }
@@ -914,9 +923,11 @@ function renderSongList() {
     const q = quadrantOf(song.score);
     const li = document.createElement("li");
     li.className = "song-item" + (song.id === selectedId ? " is-selected" : "");
+    li.dataset.id = song.id;
     li.title = flairName(q);
     li.innerHTML = `
       <span class="flair-chip" style="--c:${QUADRANT_COLORS[q]}"></span>
+      ${coverHtml(song, "song-cover")}
       <span class="song-name"><b>${escapeHtml(song.title)}</b> <span>${escapeHtml(song.artist)}</span></span>
       <span class="song-score">${formatScore(song.score.x, 1)}, ${formatScore(song.score.y, 1)}</span>
       <button class="song-remove" aria-label="Remove ${escapeHtml(song.title)}">${CLOSE_ICON}</button>
@@ -940,6 +951,7 @@ function renderSongList() {
 function renderResult(song) {
   const body = document.getElementById("resultBody");
 
+  resultSongId = song ? song.id : null;
   if (!song) {
     const hint = builtWords
       ? "Add a song to see its result."
@@ -948,19 +960,173 @@ function renderResult(song) {
     return;
   }
 
+  queueItunes(song, true);
   const w = builtWords;
   const q = quadrantOf(song.score);
   body.innerHTML = `
-    <p class="result-title">${escapeHtml(song.title)} <span>by ${escapeHtml(song.artist)}</span></p>
+    <div class="result-head">
+      ${coverHtml(song, "result-cover")}
+      <p class="result-title">${escapeHtml(song.title)} <span>by ${escapeHtml(song.artist)}</span></p>
+    </div>
     <dl class="result-scores">
       <div><dt>${escapeHtml(titleCase(w.xNeg))} ↔ ${escapeHtml(titleCase(w.xPos))}</dt><dd>${formatScore(song.score.x)}</dd></div>
       <div><dt>${escapeHtml(titleCase(w.yNeg))} ↔ ${escapeHtml(titleCase(w.yPos))}</dt><dd>${formatScore(song.score.y)}</dd></div>
     </dl>
+    ${previewHtml(song)}
     <p class="result-flair"><span class="flair-chip" style="--c:${QUADRANT_COLORS[q]}"></span>${escapeHtml(flairName(q))}</p>
     <button class="link-btn why-btn">Why is it here?</button>
   `;
   body.querySelector(".why-btn").addEventListener("click", () => openWhyModal(song));
+  const previewBtn = body.querySelector(".preview-btn");
+  if (previewBtn) {
+    previewBtn.addEventListener("click", () => togglePreview(song));
+    syncPreview();
+  }
 }
+
+// --- Previews and covers --------------------------------------------------------------
+// 30-second clips and album art from the iTunes Search API, which needs no key and
+// allows browser requests. Apple allows about 20 searches a minute, so lookups go
+// through a paced queue; a clicked song jumps to the front.
+
+const ITUNES_URL = "https://itunes.apple.com/search";
+const ITUNES_GAP_MS = 3200;
+const ITUNES_CACHE_KEY = "itunesCache";
+const PLAY_ICON = '<svg class="icon icon-fill" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 2.5v11l9-5.5z" /></svg>';
+const PAUSE_ICON = '<svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3v10M11 3v10" /></svg>';
+
+let itunesQueue = [];
+let itunesBusy = false;
+let resultSongId = null;
+const previewAudio = new Audio();
+let playingSongId = null;
+
+function readItunesCache() {
+  try { return JSON.parse(localStorage.getItem(ITUNES_CACHE_KEY)) || {}; } catch { return {}; }
+}
+
+function writeItunesCache(key, value) {
+  try {
+    const cache = readItunesCache();
+    cache[key] = value;
+    localStorage.setItem(ITUNES_CACHE_KEY, JSON.stringify(cache));
+  } catch { /* storage full or blocked: just don't cache */ }
+}
+
+// Resolves to { preview, artwork, url }, null for no match, or undefined on error
+async function searchItunes(title, artist) {
+  const params = new URLSearchParams({ term: `${title} ${artist}`, entity: "song", limit: "15" });
+  try {
+    const response = await fetch(`${ITUNES_URL}?${params}`);
+    if (!response.ok) return undefined;
+    const { results } = await response.json();
+    const match = pickTrackMatch(results.filter(r => r.previewUrl), title, artist);
+    if (!match) return null;
+    return {
+      preview: match.previewUrl,
+      artwork: (match.artworkUrl100 || "").replace("100x100bb", "200x200bb"),
+      url: match.trackViewUrl,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function queueItunes(song, urgent = false) {
+  if (song.itunes !== undefined) return;
+  const cached = readItunesCache()[songKey(song.title, song.artist)];
+  if (cached !== undefined) {
+    song.itunes = cached;
+    showItunes(song);
+    return;
+  }
+  itunesQueue = itunesQueue.filter(s => s !== song);
+  if (urgent) itunesQueue.unshift(song); else itunesQueue.push(song);
+  if (!itunesBusy) drainItunesQueue();
+}
+
+async function drainItunesQueue() {
+  itunesBusy = true;
+  while (itunesQueue.length) {
+    const song = itunesQueue.shift();
+    if (!songs.includes(song) || song.itunes !== undefined) continue;
+    const found = await searchItunes(song.title, song.artist);
+    // An error isn't cached, so the song is tried again next time it's shown
+    song.itunes = found === undefined ? null : found;
+    if (found !== undefined) writeItunesCache(songKey(song.title, song.artist), found);
+    showItunes(song);
+    await new Promise(r => setTimeout(r, ITUNES_GAP_MS));
+  }
+  itunesBusy = false;
+}
+
+function coverHtml(song, className) {
+  const art = song.itunes && song.itunes.artwork;
+  return art
+    ? `<img class="${className}" src="${escapeHtml(art)}" alt="" loading="lazy">`
+    : `<span class="${className} is-empty"></span>`;
+}
+
+// Fill in a song's cover and preview wherever it's on screen, without rebuilding
+// the list (which would lose its scroll position mid-import)
+function showItunes(song) {
+  const row = document.querySelector(`.song-item[data-id="${song.id}"] .song-cover`);
+  if (row) row.outerHTML = coverHtml(song, "song-cover");
+  if (resultSongId === song.id) renderResult(song);
+}
+
+function previewHtml(song) {
+  if (song.itunes === undefined) return `<p class="preview-note">Looking for a preview…</p>`;
+  if (!song.itunes) return "";
+  const playing = playingSongId === song.id;
+  return `
+    <div class="preview">
+      <button type="button" class="preview-btn" aria-label="${playing ? "Pause" : "Play"} preview">${playing ? PAUSE_ICON : PLAY_ICON}</button>
+      <div class="preview-track"><div class="preview-bar"></div></div>
+      <a class="preview-link" href="${escapeHtml(song.itunes.url)}" target="_blank" rel="noopener">Listen on Apple Music</a>
+    </div>`;
+}
+
+function togglePreview(song) {
+  if (playingSongId === song.id && !previewAudio.paused) {
+    previewAudio.pause();
+    return;
+  }
+  if (playingSongId !== song.id) {
+    previewAudio.src = song.itunes.preview;
+    playingSongId = song.id;
+  }
+  previewAudio.play().catch(() => {
+    stopPreview();
+    toast("Couldn't play the preview.", "error");
+  });
+}
+
+function stopPreview() {
+  previewAudio.pause();
+  previewAudio.removeAttribute("src");
+  playingSongId = null;
+  syncPreview();
+}
+
+// Keep the on-screen button and bar in step with the audio
+function syncPreview() {
+  const btn = document.querySelector(".preview-btn");
+  if (!btn) return;
+  const playing = resultSongId === playingSongId && !previewAudio.paused;
+  btn.innerHTML = playing ? PAUSE_ICON : PLAY_ICON;
+  btn.setAttribute("aria-label", `${playing ? "Pause" : "Play"} preview`);
+  const bar = document.querySelector(".preview-bar");
+  const fraction = resultSongId === playingSongId && previewAudio.duration
+    ? previewAudio.currentTime / previewAudio.duration : 0;
+  bar.style.width = `${fraction * 100}%`;
+}
+
+for (const event of ["play", "pause", "timeupdate"]) previewAudio.addEventListener(event, syncPreview);
+previewAudio.addEventListener("ended", () => {
+  previewAudio.currentTime = 0;
+  syncPreview();
+});
 
 // --- Why is it here? ------------------------------------------------------------------
 // Each lyric line's share of the song's position, from the backend. The shares on an
