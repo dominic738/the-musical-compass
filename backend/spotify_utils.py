@@ -25,40 +25,59 @@ def get_client():
 
 
 
+# Only suffixes that name a different edition of the same recording, so a title
+# like "Live Forever" or "Bonus Track Blues" is left alone
+EDITION_SUFFIX_RE = re.compile(
+    r'\s*(?:[-–—]\s+[^-–—]*|[\(\[][^\)\]]*[\)\]])$'
+)
+EDITION_WORDS_RE = re.compile(
+    r'\b(?:remaster|single version|album version|radio edit|\d{4} mix|mono\b|stereo\b|deluxe|bonus track)',
+    re.IGNORECASE
+)
+
+# Every new song costs an embedding call, so cap how much one import can add
+MAX_PLAYLIST_TRACKS = 100
+
+
 def clean_track_name(name):
-    # Remove things like: " - 2004 Digital Remaster", "(Remastered 2017)", etc.
-    name = re.sub(
-        r'\s*[\(\[-–—]?[^\)\]\-–—]*?(?:\d{4}\s*)?(Digital\s*)?Remaster(ed)?|Live|Bonus[^\)\]\-–—]*?[\)\]-–—]?',
-        '',
-        name,
-        flags=re.IGNORECASE
-    )
-    # Remove any trailing punctuation or whitespace
-    name = re.sub(r"[-–—'\s]+$", '', name)
-    return name.strip()
+    """Strip edition suffixes like " - 2011 Remaster" or "(Mono)", repeatedly."""
+    while True:
+        match = EDITION_SUFFIX_RE.search(name)
+        if not match or not EDITION_WORDS_RE.search(match.group(0)):
+            return name.strip()
+        name = name[:match.start()]
 
 
 def get_playlist(playlist_url):
+    """
+    Return ([{"title", "artist"}, ...], total_in_playlist) for a public playlist.
+    Duplicates, local files and podcast episodes are skipped; at most
+    MAX_PLAYLIST_TRACKS tracks are returned, in playlist order.
+    """
     sp = get_client()
-    results = sp.playlist_items(playlist_url)
-    song_d = {}
+    results = sp.playlist_items(playlist_url, additional_types=("track",))
+    total = results.get("total", 0)
+    tracks = []
+    seen = set()
 
-    
     while results:
-        for item in results['items']:
-            track = item.get('track')
-            if not track:
+        for item in results["items"]:
+            # Newer API responses name the field "item"; older ones "track"
+            track = item.get("track") or item.get("item")
+            if not track or track.get("type") != "track" or item.get("is_local"):
                 continue
 
-            track_name = track['name']
-            track_name = clean_track_name(track_name)
-            
-            artist_name = track['artists'][0]['name']
-            song_d[track_name] = artist_name
+            title = clean_track_name(track["name"])
+            # First artist only: LRCLIB matching already accepts "Artist & Someone" credits
+            artist = track["artists"][0]["name"] if track["artists"] else ""
+            key = (title.lower(), artist.lower())
+            if not title or not artist or key in seen:
+                continue
+            seen.add(key)
+            tracks.append({"title": title, "artist": artist})
+            if len(tracks) == MAX_PLAYLIST_TRACKS:
+                return tracks, total
 
-        if results['next']:
-            results = sp.next(results)
-        else:
-            break
+        results = sp.next(results) if results["next"] else None
 
-    return song_d
+    return tracks, total

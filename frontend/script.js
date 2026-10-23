@@ -1,6 +1,8 @@
-// Backend API URL - change this when deploying
-// const API_URL = "http://localhost:8000";
-const API_URL = "https://musical-compass-backend-v2-390523133390.us-central1.run.app"; // Use this for production
+// Backend API URL: a local backend when the page is served locally (or opened as a file)
+const IS_LOCAL = ["localhost", "127.0.0.1", ""].includes(location.hostname);
+const API_URL = IS_LOCAL
+  ? "http://localhost:8000"
+  : "https://musical-compass-backend-v2-390523133390.us-central1.run.app";
 
 // Plot square in SVG user units; matches the viewBox in index.html
 const GRAPH_SIZE = 700;
@@ -216,7 +218,11 @@ async function generateAxes() {
     currentAxisY = data.axis_y;
     currentOffsetX = data.offset_x ?? 0;
     currentOffsetY = data.offset_y ?? 0;
+    document.getElementById("phrasesBtn").hidden = false;
     document.getElementById("songTitle").focus();
+    // New words may have just been written
+    loadKnownWords();
+    loadStats();
 
   } catch (error) {
     console.error("Error generating axes:", error);
@@ -254,38 +260,52 @@ async function addSong() {
   setButtonLoading(addBtn, true, "Finding lyrics…");
 
   try {
-    const checkRes = await fetch(`${API_URL}/check-song`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title, artist })
-    });
-
-    if (!checkRes.ok) throw new Error(await errorDetail(checkRes));
-    const checkData = await checkRes.json();
-
-    if (checkData.found) {
-      const { x, y } = projectEmbedding(checkData.embedding);
-      plotSong(title, artist, x, y, color);
+    const found = await lookupSong(title, artist, () => { addBtn.textContent = "Reading lyrics…"; });
+    if (found) {
+      const { x, y } = projectEmbedding(found.embedding);
+      plotSong(title, artist, x, y, color, { lyrics: found.lyrics });
       clearSongInputs();
-      return;
+    } else {
+      openLyricsModal({ title, artist, color });
     }
-
-    // Not cached yet: try LRCLIB before asking the user to paste lyrics
-    const lyrics = await fetchLyricsFromLrclib(title, artist);
-    if (lyrics) {
-      addBtn.textContent = "Reading lyrics…";
-      if (await embedAndPlotWithLyrics({ title, artist, lyrics, color })) clearSongInputs();
-      return;
-    }
-
-    openLyricsModal({ title, artist, color });
-
   } catch (err) {
     console.error(err);
     toast(`Couldn't add that song: ${err.message}`, "error");
   } finally {
     setButtonLoading(addBtn, false);
   }
+}
+
+// A song's embedding: cached on the backend, or made from LRCLIB lyrics.
+// Returns { embedding, lyrics } (lyrics is null for cached songs), or null when
+// the user would have to paste the lyrics; throws if the backend fails.
+async function lookupSong(title, artist, onEmbedding = () => {}) {
+  const checkRes = await fetch(`${API_URL}/check-song`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title, artist })
+  });
+
+  if (!checkRes.ok) throw new Error(await errorDetail(checkRes));
+  const checkData = await checkRes.json();
+  if (checkData.found) return { embedding: checkData.embedding, lyrics: null };
+
+  const lyrics = await fetchLyricsFromLrclib(title, artist);
+  if (!lyrics) return null;
+
+  onEmbedding();
+  return { embedding: await embedLyrics(title, artist, lyrics), lyrics };
+}
+
+async function embedLyrics(title, artist, lyrics) {
+  const embedRes = await fetch(`${API_URL}/embed-lyrics`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title, artist, lyrics })
+  });
+
+  if (!embedRes.ok) throw new Error(await errorDetail(embedRes));
+  return (await embedRes.json()).embedding;
 }
 
 function clearSongInputs() {
@@ -433,28 +453,162 @@ function openLyricsModal({ title, artist, color }) {
 
 async function embedAndPlotWithLyrics({ title, artist, lyrics, color }) {
   try {
-    const embedRes = await fetch(`${API_URL}/embed-lyrics`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title, artist, lyrics })
-    });
-
-    if (!embedRes.ok) {
-      toast(`Couldn't read those lyrics: ${await errorDetail(embedRes)}`, "error", 6000);
-      return false;
-    }
-    const embedData = await embedRes.json();
-
-    const { x, y } = projectEmbedding(embedData.embedding);
-
-    plotSong(title, artist, x, y, color);
+    const { x, y } = projectEmbedding(await embedLyrics(title, artist, lyrics));
+    plotSong(title, artist, x, y, color, { lyrics });
     return true;
-
   } catch (e) {
     console.error(e);
-    toast("Something went wrong reading the lyrics. Please try again.", "error");
+    toast(`Couldn't read those lyrics: ${e.message}`, "error", 6000);
     return false;
   }
+}
+
+// --- Spotify playlist import --------------------------------------------------------
+
+// Songs looked up at once: enough to be quick, few enough not to trip LRCLIB's rate limit
+const IMPORT_CONCURRENCY = 3;
+
+function songKey(title, artist) {
+  return `${normalizeName(title)}|${baseArtist(artist)}`;
+}
+
+function openImportModal() {
+  if (!currentAxisX || !currentAxisY) {
+    toast("Generate a compass first (step 1).", "error");
+    return;
+  }
+
+  let stopped = false;
+  const modal = openModal(`
+    <button class="modal-close" aria-label="Close">${CLOSE_ICON}</button>
+    <h2 class="modal-title">Import a Spotify playlist</h2>
+    <p>Paste a link to a public playlist. Each song is looked up on LRCLIB; songs without lyrics there are skipped. Playlists made by Spotify itself, like Today's Top Hits, can't be read.</p>
+    <input type="text" id="playlistUrlInput" inputmode="url" placeholder="https://open.spotify.com/playlist/…" autocomplete="off" />
+    <div class="modal-actions">
+      <button class="btn btn-quiet" data-action="cancel">Cancel</button>
+      <button class="btn" data-action="submit">Import</button>
+    </div>
+  `, { onClose: () => { stopped = true; } });
+
+  const input = modal.root.querySelector("#playlistUrlInput");
+  const submitBtn = modal.root.querySelector('[data-action="submit"]');
+  input.focus();
+  modal.root.querySelector(".modal-close").onclick = modal.close;
+  modal.root.querySelector('[data-action="cancel"]').onclick = modal.close;
+
+  const submit = async () => {
+    const url = input.value.trim();
+    if (!url) {
+      input.focus();
+      toast("Paste a playlist link first.", "error");
+      return;
+    }
+
+    setButtonLoading(submitBtn, true, "Opening playlist…");
+    let data;
+    try {
+      const res = await fetch(`${API_URL}/get-playlist-tracks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ playlist_url: url })
+      });
+      if (!res.ok) throw new Error(await errorDetail(res));
+      data = await res.json();
+    } catch (e) {
+      console.error(e);
+      toast(e.message, "error", 6000);
+      setButtonLoading(submitBtn, false);
+      return;
+    }
+    if (stopped) return;
+
+    if (!data.tracks.length) {
+      toast("That playlist has no songs to import.", "error");
+      setButtonLoading(submitBtn, false);
+      return;
+    }
+    runImport(modal, data, () => stopped);
+  };
+  submitBtn.onclick = submit;
+  input.addEventListener("keydown", e => { if (e.key === "Enter" && !submitBtn.disabled) submit(); });
+}
+
+async function runImport(modal, { tracks, total, limit }, isStopped) {
+  const color = selectedColor;
+  const onMap = new Set(songs.map(s => songKey(s.title, s.artist)));
+  const queue = tracks.filter(t => !onMap.has(songKey(t.title, t.artist)));
+  const alreadyOnMap = tracks.length - queue.length;
+  const capped = total > limit ? `<p class="import-note">Only the first ${limit} songs are imported.</p>` : "";
+
+  modal.root.querySelector(".modal").innerHTML = `
+    <button class="modal-close" aria-label="Close">${CLOSE_ICON}</button>
+    <h2 class="modal-title">Importing ${queue.length} song${queue.length === 1 ? "" : "s"}</h2>
+    ${capped}
+    <div class="import-status"><span id="importCount"></span><span id="importCurrent"></span></div>
+    <div class="progress-track"><div class="progress-bar import-bar" id="importBar"></div></div>
+    <ul class="import-skipped" id="importSkipped" hidden></ul>
+    <div class="modal-actions">
+      <button class="btn" data-action="done">Stop</button>
+    </div>
+  `;
+  modal.root.querySelector(".modal-close").onclick = modal.close;
+  const doneBtn = modal.root.querySelector('[data-action="done"]');
+  doneBtn.onclick = modal.close;
+
+  const countEl = modal.root.querySelector("#importCount");
+  const currentEl = modal.root.querySelector("#importCurrent");
+  const bar = modal.root.querySelector("#importBar");
+  const skippedList = modal.root.querySelector("#importSkipped");
+
+  let placed = 0, skipped = 0, finished = 0, lastId = null;
+  const render = () => {
+    const parts = [`${placed} placed`];
+    if (skipped) parts.push(`${skipped} skipped`);
+    if (alreadyOnMap) parts.push(`${alreadyOnMap} already on the map`);
+    countEl.textContent = parts.join(" · ");
+    bar.style.width = `${queue.length ? (finished / queue.length) * 100 : 100}%`;
+  };
+  const skip = (track, reason) => {
+    skipped++;
+    const li = document.createElement("li");
+    li.innerHTML = `<b>${escapeHtml(track.title)}</b> ${escapeHtml(track.artist)} <span>· ${escapeHtml(reason)}</span>`;
+    skippedList.appendChild(li);
+    skippedList.hidden = false;
+  };
+  render();
+
+  let next = 0;
+  const worker = async () => {
+    while (next < queue.length && !isStopped()) {
+      const track = queue[next++];
+      currentEl.textContent = track.title;
+      try {
+        const found = await lookupSong(track.title, track.artist);
+        if (isStopped()) return;
+        if (found) {
+          const { x, y } = projectEmbedding(found.embedding);
+          lastId = plotSong(track.title, track.artist, x, y, color, { quiet: true, lyrics: found.lyrics });
+          placed++;
+        } else {
+          skip(track, "no lyrics found");
+        }
+      } catch (e) {
+        console.error(e);
+        skip(track, e.message);
+      }
+      finished++;
+      render();
+    }
+  };
+  await Promise.all(Array.from({ length: IMPORT_CONCURRENCY }, worker));
+
+  if (lastId !== null) selectSong(lastId);
+  if (isStopped()) return;
+  modal.root.querySelector(".modal-title").textContent =
+    `Imported ${placed} song${placed === 1 ? "" : "s"}`;
+  currentEl.textContent = "";
+  doneBtn.textContent = "Done";
+  doneBtn.focus();
 }
 
 // --- The compass ------------------------------------------------------------------
@@ -508,13 +662,41 @@ function animatePlacement(circle, label, from, to, labelDx, labelDy = 0, onDone 
   requestAnimationFrame(step);
 }
 
-function plotSong(title, artist, rawX, rawY, color) {
+// Labels wider than this (in screen pixels) are cut short with an ellipsis
+const LABEL_MAX_WIDTH = 160;
+
+// Shorten a label's text until it fits; the full title stays in the tooltip and song list
+function fitLabel(label, text, maxWidth) {
+  label.textContent = text;
+  for (let n = text.length - 1; n > 0 && label.getComputedTextLength() > maxWidth; n--) {
+    label.textContent = text.slice(0, n).trimEnd() + "…";
+  }
+}
+
+// The exact spot if it's clear, else the nearest spot close by that doesn't
+// cover another dot. Only the drawing moves; the score stays exact.
+function freeDotSpot(x, y) {
+  const minDist = 11 * currentScale;
+  const clear = (px, py) => songs.every(s => Math.hypot(s.dot.x - px, s.dot.y - py) >= minDist);
+  if (clear(x, y)) return { x, y };
+  for (let r = minDist / 2; r <= minDist * 1.5; r += minDist / 2) {
+    for (let a = 0; a < 12; a++) {
+      const px = x + r * Math.cos(a * Math.PI / 6);
+      const py = y + r * Math.sin(a * Math.PI / 6);
+      if (px >= 0 && px <= GRAPH_SIZE && py >= 0 && py <= GRAPH_SIZE && clear(px, py)) return { x: px, y: py };
+    }
+  }
+  return { x, y };
+}
+
+// Returns the new song's id. `quiet` skips selecting and scrolling, for bulk imports.
+// `lyrics`, when known, are kept in memory only, for "Why is it here?".
+function plotSong(title, artist, rawX, rawY, color, { quiet = false, lyrics = null } = {}) {
   const layer = document.getElementById("songLayer");
   const nx = sigmoidScaled(rawX);
   const ny = sigmoidScaled(rawY);
 
-  const cx = GRAPH_SIZE * (nx + 1) / 2;
-  const cy = GRAPH_SIZE * (1 - (ny + 1) / 2);
+  const { x: cx, y: cy } = freeDotSpot(GRAPH_SIZE * (nx + 1) / 2, GRAPH_SIZE * (1 - (ny + 1) / 2));
   const id = nextSongId++;
 
   const circle = document.createElementNS(SVG_NS, "circle");
@@ -531,41 +713,47 @@ function plotSong(title, artist, rawX, rawY, color) {
   circle.appendChild(tooltip);
 
   const label = document.createElementNS(SVG_NS, "text");
-  label.textContent = title;
   label.classList.add("song-label");
   label.setAttribute("dominant-baseline", "middle");
 
   layer.appendChild(label);
   layer.appendChild(circle);
+  fitLabel(label, title, LABEL_MAX_WIDTH * currentScale);
 
-  // Keep labels inside the plot: flip to the left of the dot only when the
-  // label would otherwise run past the right edge
   const gap = 12 * currentScale;
   const width = label.getComputedTextLength();
-  const flip = cx + gap + width > GRAPH_SIZE - 6;
-  label.setAttribute("text-anchor", flip ? "end" : "start");
-
-  // Nudge the label up or down until it clears the labels already placed
   const lineH = 15 * currentScale;
-  const left = flip ? cx - gap - width : cx + gap;
-  const box = dy => ({ x1: left, x2: left + width, y1: cy + dy - lineH / 2, y2: cy + dy + lineH / 2 });
+  const box = (flip, dy) => {
+    const left = flip ? cx - gap - width : cx + gap;
+    return { x1: left, x2: left + width, y1: cy + dy - lineH / 2, y2: cy + dy + lineH / 2 };
+  };
+  const inPlot = b => b.x1 >= 6 && b.x2 <= GRAPH_SIZE - 6 && b.y1 >= 0 && b.y2 <= GRAPH_SIZE;
   const overlaps = (b, o) => b.x1 < o.x2 && b.x2 > o.x1 && b.y1 < o.y2 && b.y2 > o.y1;
   // Clear other labels and other dots (including this one)
   const dotR = 9 * currentScale;
   const dotBox = (x, y) => ({ x1: x - dotR, x2: x + dotR, y1: y - dotR, y2: y + dotR });
   const hits = b => overlaps(b, dotBox(cx, cy)) || songs.some(s =>
-    overlaps(b, s.labelBox) || overlaps(b, dotBox(s.dot.x, s.dot.y)));
-  let labelDy = 0;
-  for (const step of [0, 1, -1, 2, -2, 3, -3]) {
-    const dy = step * lineH;
-    const b = box(dy);
-    if (b.y1 < 0 || b.y2 > GRAPH_SIZE) continue;
-    if (!hits(b)) { labelDy = dy; break; }
+    (s.labelBox && overlaps(b, s.labelBox)) || overlaps(b, dotBox(s.dot.x, s.dot.y)));
+
+  // Right of the dot first (left if it would run off the plot), then the other
+  // side, nudging up or down to clear what's already placed. With no free spot
+  // the label is hidden until the song is hovered or selected.
+  const preferLeft = !inPlot(box(false, 0));
+  let place = null;
+  for (const flip of preferLeft ? [true, false] : [false, true]) {
+    for (const step of [0, 1, -1, 2, -2, 3, -3]) {
+      const b = box(flip, step * lineH);
+      if (inPlot(b) && !hits(b)) { place = { flip, dy: step * lineH, box: b }; break; }
+    }
+    if (place) break;
   }
-  const labelBox = box(labelDy);
+  const crowded = !place;
+  const { flip, dy: labelDy, box: labelBox } = place || { flip: preferLeft, dy: 0, box: null };
+  label.setAttribute("text-anchor", flip ? "end" : "start");
+  label.classList.toggle("is-crowded", crowded);
 
   // On small screens the form sits below the chart: bring the chart into view for the drop
-  if (window.matchMedia("(max-width: 900px)").matches) {
+  if (!quiet && window.matchMedia("(max-width: 900px)").matches) {
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     document.querySelector(".compass-wrap").scrollIntoView({ block: "center", behavior: reduce ? "auto" : "smooth" });
   }
@@ -587,8 +775,14 @@ function plotSong(title, artist, rawX, rawY, color) {
   animatePlacement(circle, label, centre, { x: cx, y: cy }, flip ? -gap : gap, labelDy,
     () => { if (leader) leader.style.opacity = ""; });
 
-  songs.push({ id, title, artist, color, score: { x: nx * 10, y: ny * 10 }, circle, label, labelBox, leader, dot: { x: cx, y: cy } });
-  selectSong(id);
+  songs.push({
+    id, title, artist, color, lyrics, score: { x: nx * 10, y: ny * 10 },
+    circle, label, labelBox, leader, dot: { x: cx, y: cy },
+    magnet: { x: 0, y: 0, vx: 0, vy: 0 },
+  });
+  if (quiet) renderSongList();
+  else selectSong(id);
+  return id;
 }
 
 function selectSong(id) {
@@ -607,8 +801,80 @@ function selectSong(id) {
   renderResult(songs.find(s => s.id === id) || null);
 }
 
-// Hovering a dot or row shows its result without changing the selection
+// --- Magnet hover -------------------------------------------------------------------
+// Dots near the cursor are pushed away from it, like magnets with like poles facing,
+// and spring back when it moves on. The push is zero right under the cursor, so the
+// dot you're pointing at holds still while its neighbours make room. Only the
+// drawing moves; scores and the saved image are unaffected.
+
+const MAGNET_RADIUS = 70;  // screen pixels: how far the push reaches
+const MAGNET_HOLD = 10;    // screen pixels: a dot this close to the cursor isn't pushed
+const MAGNET_PUSH = 16;    // screen pixels: the furthest a dot is pushed
+const MAGNET_SPRING = 0.16;   // how hard a dot is pulled toward where the push puts it
+const MAGNET_DAMPING = 0.75;  // velocity kept each frame: higher bounces more
+
+let magnetCursor = null;  // cursor in SVG units, or null when it's off the chart
+let magnetFrame = null;
+
+function magnetStep() {
+  const radius = MAGNET_RADIUS * currentScale;
+  const hold = MAGNET_HOLD * currentScale;
+  let moving = false;
+
+  for (const song of songs) {
+    let tx = 0, ty = 0;
+    if (magnetCursor) {
+      const dx = song.dot.x - magnetCursor.x;
+      const dy = song.dot.y - magnetCursor.y;
+      const d = Math.hypot(dx, dy);
+      if (d > hold && d < radius) {
+        // Zero at the edge of the hold zone, strongest halfway out, zero at the radius
+        const t = (d - hold) / (radius - hold);
+        const push = MAGNET_PUSH * currentScale * 4 * t * (1 - t);
+        tx = (dx / d) * push;
+        ty = (dy / d) * push;
+      }
+    }
+
+    const m = song.magnet;
+    m.vx = (m.vx + (tx - m.x) * MAGNET_SPRING) * MAGNET_DAMPING;
+    m.vy = (m.vy + (ty - m.y) * MAGNET_SPRING) * MAGNET_DAMPING;
+    m.x += m.vx;
+    m.y += m.vy;
+    if (Math.abs(m.x) + Math.abs(m.y) + Math.abs(m.vx) + Math.abs(m.vy) < 0.01) {
+      m.x = m.y = m.vx = m.vy = 0;
+    } else {
+      moving = true;
+    }
+
+    const transform = `translate(${m.x.toFixed(2)} ${m.y.toFixed(2)})`;
+    song.circle.setAttribute("transform", transform);
+    song.label.setAttribute("transform", transform);
+    if (song.leader) song.leader.setAttribute("transform", transform);
+  }
+
+  magnetFrame = moving || magnetCursor ? requestAnimationFrame(magnetStep) : null;
+}
+
+function magnetMove(e) {
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const ctm = document.getElementById("graph").getScreenCTM();
+  if (!ctm) return;
+  magnetCursor = new DOMPoint(e.clientX, e.clientY).matrixTransform(ctm.inverse());
+  if (!magnetFrame) magnetFrame = requestAnimationFrame(magnetStep);
+}
+
+function magnetLeave() {
+  magnetCursor = null;
+}
+
+// Hovering a dot or row shows its result (and its label, if that was hidden
+// for lack of room) without changing the selection
 function previewSong(id) {
+  for (const s of songs) {
+    s.label.classList.toggle("is-previewed", s.id === id);
+    if (s.id === id) s.label.parentNode.appendChild(s.label);
+  }
   const song = songs.find(s => s.id === id) || songs.find(s => s.id === selectedId) || null;
   renderResult(song);
 }
@@ -691,7 +957,283 @@ function renderResult(song) {
       <div><dt>${escapeHtml(titleCase(w.yNeg))} ↔ ${escapeHtml(titleCase(w.yPos))}</dt><dd>${formatScore(song.score.y)}</dd></div>
     </dl>
     <p class="result-flair"><span class="flair-chip" style="--c:${QUADRANT_COLORS[q]}"></span>${escapeHtml(flairName(q))}</p>
+    <button class="link-btn why-btn">Why is it here?</button>
   `;
+  body.querySelector(".why-btn").addEventListener("click", () => openWhyModal(song));
+}
+
+// --- Why is it here? ------------------------------------------------------------------
+// Each lyric line's share of the song's position, from the backend. The shares on an
+// axis add up to the song's score there, so the lines with the biggest shares are
+// what put it where it is.
+
+const WHY_LINES_PER_POLE = 3;
+
+async function explainSong(song) {
+  if (song.explanation) return song.explanation;
+  const res = await fetch(`${API_URL}/explain-lyrics`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      lyrics: song.lyrics,
+      axis_x: currentAxisX, axis_y: currentAxisY,
+      offset_x: currentOffsetX, offset_y: currentOffsetY,
+    })
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  song.explanation = (await res.json()).lines;
+  return song.explanation;
+}
+
+// Pole colours in the dialog, taken from the quadrant palette
+const WHY_COLORS = {
+  x: { neg: "var(--q-tl)", pos: "var(--q-tr)" },
+  y: { neg: "var(--q-bl)", pos: "var(--q-br)" },
+};
+
+// One axis: the lines pulling hardest toward each pole, the song's own side first.
+// Each bar is a mini version of the axis: it grows from the centre toward the pole
+// the line pulls to, and the strongest line on the axis reaches the end.
+function whyAxisHtml(lines, key, negWord, posWord, score) {
+  const neg = escapeHtml(titleCase(negWord));
+  const pos = escapeHtml(titleCase(posWord));
+  const maxPull = Math.max(...lines.map(l => Math.abs(l[key])), 1e-9);
+
+  const pole = (word, sign) => {
+    const top = lines.filter(l => sign * l[key] > 0)
+      .sort((a, b) => sign * (b[key] - a[key]))
+      .slice(0, WHY_LINES_PER_POLE);
+    const items = top.map(l => `
+      <li class="why-line">
+        <span>${escapeHtml(l.text)}</span>
+        <span class="why-count">${l.count > 1 ? `sung ×${l.count}` : ""}</span>
+        <span class="why-track"><span class="why-bar ${sign > 0 ? "pos" : "neg"}" style="width:${(Math.abs(l[key]) / maxPull * 50).toFixed(1)}%"></span></span>
+      </li>`).join("");
+    return `
+      <p class="why-pole"><span class="why-chip ${sign > 0 ? "pos" : "neg"}"></span>Toward ${escapeHtml(titleCase(word))}</p>
+      ${items ? `<ul class="why-lines">${items}</ul>` : `<p class="why-none">No lines pull this way.</p>`}`;
+  };
+  const poles = score >= 0
+    ? pole(posWord, 1) + pole(negWord, -1)
+    : pole(negWord, -1) + pole(posWord, 1);
+
+  return `
+    <section class="why-axis" style="--neg:${WHY_COLORS[key].neg}; --pos:${WHY_COLORS[key].pos}">
+      <h3><span>${neg} ↔ ${pos}</span><span>${formatScore(score)}</span></h3>
+      <div class="why-scale"><span>← ${neg}</span><span>${pos} →</span></div>
+      ${poles}
+    </section>`;
+}
+
+function openWhyModal(song) {
+  const modal = openModal(`
+    <button class="modal-close" aria-label="Close">${CLOSE_ICON}</button>
+    <h2 class="modal-title">Why ${escapeHtml(song.title)} lands here</h2>
+    <div class="why-body"><p class="why-status">Reading the lyrics…</p></div>
+  `);
+  modal.root.querySelector(".modal-close").onclick = modal.close;
+  const body = modal.root.querySelector(".why-body");
+
+  const show = async () => {
+    body.innerHTML = `<p class="why-status">Reading the lyrics…</p>`;
+    try {
+      // Songs that came from the cache arrive without lyrics; fetch them again
+      if (!song.lyrics) song.lyrics = await fetchLyricsFromLrclib(song.title, song.artist);
+      if (!song.lyrics) return askForLyrics();
+
+      const lines = await explainSong(song);
+      const w = builtWords;
+      body.innerHTML = `
+        <p>Every line pulls the song toward one side of each axis, and lines sung more often pull harder. Together they add up to where the song lands. These pull the most.</p>
+        <p class="why-legend">Each bar points the way its line pulls. The longer the bar, the harder the pull; the strongest line on each axis reaches the end.</p>
+        ${whyAxisHtml(lines, "x", w.xNeg, w.xPos, song.score.x)}
+        ${whyAxisHtml(lines, "y", w.yNeg, w.yPos, song.score.y)}`;
+    } catch (e) {
+      console.error(e);
+      body.innerHTML = `<p class="why-status">Couldn't explain this song: ${escapeHtml(e.message)}</p>`;
+    }
+  };
+
+  const askForLyrics = () => {
+    body.innerHTML = `
+      <p>The lyrics for <strong>${escapeHtml(song.title)}</strong> aren't on LRCLIB. Paste them to see which lines put it here. They aren't saved.</p>
+      <textarea placeholder="Paste the full lyrics here…"></textarea>
+      <div class="modal-actions"><button class="btn" data-action="explain">Explain</button></div>`;
+    const textarea = body.querySelector("textarea");
+    textarea.focus();
+    body.querySelector('[data-action="explain"]').onclick = () => {
+      if (!textarea.value.trim()) {
+        textarea.focus();
+        toast("Paste the lyrics first.", "error");
+        return;
+      }
+      song.lyrics = textarea.value.trim();
+      show();
+    };
+  };
+
+  show();
+}
+
+// --- Words and phrases --------------------------------------------------------------
+
+// Axis inputs in the order they appear in the form
+const AXIS_FORM_ORDER = ["yPos", "yNeg", "xNeg", "xPos"];
+const AXIS_FIELD_NAMES = { yPos: "Up", yNeg: "Down", xNeg: "Left", xPos: "Right" };
+
+let knownWords = [];
+let lastAxisInput = "yPos";
+const phraseCache = new Map();
+
+function plural(n, word) {
+  return `${n.toLocaleString()} ${word}${n === 1 ? "" : "s"}`;
+}
+
+async function loadStats() {
+  const el = document.getElementById("siteStats");
+  try {
+    const response = await fetch(`${API_URL}/stats`);
+    if (!response.ok) return;
+    const { songs, words } = await response.json();
+    if (!songs && !words) return;
+    el.textContent = `${plural(songs, "song")} and ${plural(words, "word")} on the compass so far.`;
+    el.hidden = false;
+  } catch {
+    // Stats are a nice-to-have; leave the line hidden
+  }
+}
+
+async function loadKnownWords() {
+  try {
+    const response = await fetch(`${API_URL}/words`);
+    if (!response.ok) return;
+    knownWords = (await response.json()).words;
+  } catch {
+    return;
+  }
+  const list = document.getElementById("knownWords");
+  list.replaceChildren(...knownWords.map(w => {
+    const option = document.createElement("option");
+    option.value = titleCase(w);
+    return option;
+  }));
+  const btn = document.getElementById("browseWordsBtn");
+  btn.textContent = `Browse ${plural(knownWords.length, "word")} people have used`;
+  btn.hidden = knownWords.length === 0;
+}
+
+// Fills empty directions first, in form order; once all are full, replaces the last one touched
+function nextAxisTarget() {
+  return AXIS_FORM_ORDER.find(id => !document.getElementById(id).value.trim()) || lastAxisInput;
+}
+
+function openWordsModal() {
+  const modal = openModal(`
+    <button class="modal-close" aria-label="Close">${CLOSE_ICON}</button>
+    <h2 class="modal-title">Words people have used</h2>
+    <p>These words already have phrases written, so a compass built from them is ready in seconds.</p>
+    <input type="text" class="word-filter" placeholder="Filter words" aria-label="Filter words" autocomplete="off" />
+    <p class="word-target"></p>
+    <div class="word-chips"></div>
+  `);
+  modal.root.querySelector(".modal-close").onclick = modal.close;
+  const filter = modal.root.querySelector(".word-filter");
+  const chips = modal.root.querySelector(".word-chips");
+  const target = modal.root.querySelector(".word-target");
+
+  const showTarget = () => {
+    target.innerHTML = `Click a word to put it in <strong>${AXIS_FIELD_NAMES[nextAxisTarget()]}</strong>.`;
+  };
+
+  const render = () => {
+    const q = filter.value.trim().toLowerCase();
+    const matches = knownWords.filter(w => w.includes(q));
+    chips.innerHTML = matches.length
+      ? matches.map(w => `<button type="button" class="word-chip">${escapeHtml(titleCase(w))}</button>`).join("")
+      : `<p class="why-status">No words match.</p>`;
+  };
+
+  chips.addEventListener("click", e => {
+    const chip = e.target.closest(".word-chip");
+    if (!chip) return;
+    const id = nextAxisTarget();
+    document.getElementById(id).value = chip.textContent;
+    lastAxisInput = id;
+    syncAxisLabels();
+    if (AXIS_FORM_ORDER.every(i => document.getElementById(i).value.trim())) {
+      modal.close();
+      document.getElementById("generateBtn").focus();
+    } else {
+      showTarget();
+    }
+  });
+  filter.addEventListener("input", render);
+
+  render();
+  showTarget();
+  filter.focus();
+}
+
+async function fetchPhrases(word) {
+  const key = word.toLowerCase();
+  if (!phraseCache.has(key)) {
+    const response = await fetch(`${API_URL}/phrases?word=${encodeURIComponent(key)}`);
+    if (!response.ok) throw new Error(await errorDetail(response));
+    phraseCache.set(key, await response.json());
+  }
+  return phraseCache.get(key);
+}
+
+function openPhrasesModal() {
+  const w = builtWords;
+  // Same pole colours as the Why bars
+  const poles = [
+    { word: w.xNeg, color: WHY_COLORS.x.neg },
+    { word: w.xPos, color: WHY_COLORS.x.pos },
+    { word: w.yNeg, color: WHY_COLORS.y.neg },
+    { word: w.yPos, color: WHY_COLORS.y.pos },
+  ];
+  const modal = openModal(`
+    <button class="modal-close" aria-label="Close">${CLOSE_ICON}</button>
+    <h2 class="modal-title">The phrases behind your compass</h2>
+    <p>For each word, an AI writes a few hundred short phrases. The compass learns what each word means from these, not from the word itself.</p>
+    <div class="phrase-tabs" role="tablist">
+      ${poles.map((p, i) => `
+        <button type="button" class="phrase-tab" role="tab" data-i="${i}" style="--c:${p.color}">
+          <span class="why-chip" style="background:${p.color}"></span>${escapeHtml(titleCase(p.word))}
+        </button>`).join("")}
+    </div>
+    <div class="phrase-body"></div>
+  `);
+  modal.root.querySelector(".modal-close").onclick = modal.close;
+  const body = modal.root.querySelector(".phrase-body");
+  const tabs = [...modal.root.querySelectorAll(".phrase-tab")];
+
+  const show = async (i) => {
+    tabs.forEach((t, j) => t.setAttribute("aria-selected", String(i === j)));
+    const word = poles[i].word;
+    body.innerHTML = `<p class="why-status">Loading phrases…</p>`;
+    try {
+      const { phrases, used } = await fetchPhrases(word);
+      if (!tabs[i].matches('[aria-selected="true"]')) return;  // another tab was picked meanwhile
+      if (!phrases.length) {
+        body.innerHTML = `<p class="why-status">The phrases for ${escapeHtml(titleCase(word))} were written before the site saved their text, so only their embeddings exist. They'll show up here if the word is ever regenerated.</p>`;
+        return;
+      }
+      const items = phrases.map((p, j) =>
+        `${j === used ? `<li class="phrase-divider">The rest weren't used</li>` : ""}<li class="${j >= used ? "is-unused" : ""}">${escapeHtml(p)}</li>`
+      ).join("");
+      body.innerHTML = `
+        <p class="phrase-note">${plural(phrases.length, "phrase")}, most typical first. The ${Math.min(used, phrases.length)} most typical were used to build the axis; the rest were left out as outliers.</p>
+        <ol class="phrase-list">${items}</ol>`;
+    } catch (e) {
+      console.error(e);
+      body.innerHTML = `<p class="why-status">Couldn't load the phrases: ${escapeHtml(e.message)}</p>`;
+    }
+  };
+
+  tabs.forEach((t, i) => t.addEventListener("click", () => show(i)));
+  show(0);
 }
 
 // --- Axis labels ----------------------------------------------------------------
@@ -782,6 +1324,10 @@ async function saveImage() {
     if (el.tagName === "circle") dst[i].setAttribute("r", parseFloat(cs.getPropertyValue("r")) || 7);
   });
   svg.style.setProperty("--s", prevScale);
+  // The export has no stylesheet, so drop labels that are hidden for lack of room
+  clone.querySelectorAll(".song-label.is-crowded:not(.is-selected)").forEach(l => l.remove());
+  // Save the true positions, not where the magnet hover has pushed dots
+  clone.querySelectorAll("#songLayer [transform]").forEach(el => el.removeAttribute("transform"));
 
   // Hairlines are screen-pixel strokes on the page; give them user-unit widths here
   clone.querySelectorAll(".grid-lines line").forEach(l => { l.style.strokeWidth = "0.9"; l.style.vectorEffect = "none"; });
@@ -910,6 +1456,7 @@ function selectColor(color, fromCustom = false) {
 window.onload = () => {
   document.getElementById("generateBtn").addEventListener("click", generateAxes);
   document.getElementById("addSongBtn").addEventListener("click", addSong);
+  document.getElementById("importBtn").addEventListener("click", openImportModal);
   document.getElementById("clearBtn").addEventListener("click", clearSongs);
   document.getElementById("saveBtn").addEventListener("click", saveImage);
 
@@ -917,8 +1464,11 @@ window.onload = () => {
   for (const id of Object.keys(AXIS_INPUTS)) {
     const input = document.getElementById(id);
     input.addEventListener("input", syncAxisLabels);
+    input.addEventListener("focus", () => { lastAxisInput = id; });
     input.addEventListener("keydown", e => { if (e.key === "Enter") generateAxes(); });
   }
+  document.getElementById("browseWordsBtn").addEventListener("click", openWordsModal);
+  document.getElementById("phrasesBtn").addEventListener("click", openPhrasesModal);
   for (const id of ["songTitle", "artistName"]) {
     document.getElementById(id).addEventListener("keydown", e => {
       if (e.key === "Enter" && !document.getElementById("addSongBtn").disabled) addSong();
@@ -947,10 +1497,16 @@ window.onload = () => {
     if (e.key === "Escape" && overlay.classList.contains("active")) closeOverlay();
   });
 
+  const graph = document.getElementById("graph");
+  graph.addEventListener("mousemove", magnetMove);
+  graph.addEventListener("mouseleave", magnetLeave);
+
   drawGrid();
   syncAxisLabels();
   renderSongList();
   renderResult(null);
   updateScale();
+  loadStats();
+  loadKnownWords();
   new ResizeObserver(updateScale).observe(document.getElementById("graph"));
 };

@@ -283,7 +283,6 @@ input[type="text"]:focus, textarea:focus { outline: none; border-color: var(--in
 }
 
 .song-dot.is-selected { r: calc(8.5px * var(--s, 1)); stroke-width: calc(2.5px * var(--s, 1)); }
-
 .song-label {
   font-family: var(--font);
   font-size: calc(12.5px * var(--s, 1));
@@ -297,6 +296,10 @@ input[type="text"]:focus, textarea:focus { outline: none; border-color: var(--in
 }
 
 .song-label.is-selected { font-weight: 700; }
+
+/* No room for the label: show it only while the song is hovered or selected */
+.song-label.is-crowded { display: none; }
+.song-label.is-crowded.is-selected, .song-label.is-crowded.is-previewed { display: inline; }
 
 .song-leader { stroke: var(--ink); stroke-width: calc(1px * var(--s, 1)); pointer-events: none; }
 
@@ -396,6 +399,76 @@ input[type="text"]:focus, textarea:focus { outline: none; border-color: var(--in
 .modal-actions .btn { width: auto; margin: 0; }
 .modal-actions .btn-quiet { border-color: transparent; }
 .modal-actions .btn-quiet:hover:not(:disabled) { background: rgba(0, 0, 0, 0.07); color: var(--ink); }
+
+/* Why is it here? */
+.why-btn { display: block; margin-top: 10px; }
+.modal .why-status { color: var(--muted); }
+.why-axis { margin-top: 20px; }
+.why-axis h3 { display: flex; justify-content: space-between; gap: 12px; font-size: 15px; font-weight: 700; padding-bottom: 5px; border-bottom: 2px solid var(--ink); }
+.modal .why-legend { font-size: 13.5px; color: var(--muted); }
+.why-scale { display: flex; justify-content: space-between; margin-top: 6px; font-size: 12.5px; font-weight: 700; color: var(--ink-2); }
+.modal .why-pole { display: flex; align-items: center; gap: 7px; margin: 14px 0 6px; font-size: 12.5px; font-weight: 700; color: var(--ink-2); }
+.why-chip { width: 11px; height: 11px; border: 1.5px solid var(--ink); }
+.why-chip.pos { background: var(--pos); }
+.why-chip.neg { background: var(--neg); }
+.modal .why-none { font-size: 13.5px; color: var(--muted); }
+.why-lines { list-style: none; display: grid; gap: 10px; }
+.modal .why-line { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; margin: 0; font-size: 14px; }
+.why-count { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+/* A mini axis: centre mark in the middle, bar grows toward the pole */
+.why-track { grid-column: 1 / -1; position: relative; height: 9px; background: var(--side); }
+.why-track::after { content: ""; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--ink); }
+.why-bar { position: absolute; top: 0; bottom: 0; border: 1px solid var(--ink); }
+.why-bar.pos { left: 50%; background: var(--pos); }
+.why-bar.neg { right: 50%; background: var(--neg); }
+
+/* Stats, word list and phrases */
+.site-stats { margin-top: 8px; font-size: 13px; color: var(--muted); }
+.site-stats[hidden], .axis-link[hidden] { display: none; }
+.axis-link { display: block; margin-top: 12px; }
+.axis-link + .axis-link { margin-top: 8px; }
+.modal .word-target { font-size: 13.5px; margin: 10px 0 8px; }
+.word-chips { display: flex; flex-wrap: wrap; gap: 6px; max-height: 300px; overflow-y: auto; }
+.word-chip {
+  border: 1.5px solid var(--ink);
+  background: var(--paper);
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+.word-chip:hover { background: var(--ink); color: var(--paper); }
+.phrase-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 14px; }
+.phrase-tab {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 1.5px solid var(--side-line);
+  background: var(--paper);
+  padding: 5px 10px;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.phrase-tab:hover { border-color: var(--ink-2); }
+.phrase-tab[aria-selected="true"] { border-color: var(--ink); box-shadow: inset 0 -3px 0 var(--c); }
+.modal .phrase-note { font-size: 13.5px; color: var(--muted); }
+.phrase-list { list-style: none; padding: 0 !important; max-height: 340px; overflow-y: auto; border-top: 2px solid var(--ink); }
+.modal .phrase-list li { margin: 0; padding: 6px 0; border-bottom: 1px solid var(--side-line); font-size: 14px; }
+.modal .phrase-list li.is-unused { color: var(--muted); }
+.modal .phrase-list li.phrase-divider { padding-top: 14px; font-size: 12.5px; font-weight: 700; color: var(--ink-2); border-bottom: 2px solid var(--ink); }
+
+/* Playlist import */
+.import-link { display: block; margin-top: 12px; }
+.modal .import-note { font-size: 13.5px; }
+.import-status { display: flex; justify-content: space-between; gap: 12px; font-size: 13.5px; color: var(--ink-2); margin-bottom: 6px; }
+.import-status span:last-child { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.import-bar { background: var(--q-bl); transition: width 0.25s; }
+.import-skipped { list-style: none; margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--side-line); max-height: 180px; overflow-y: auto; font-size: 13.5px; color: var(--ink-2); }
+.import-skipped[hidden] { display: none; }
+.import-skipped li { padding: 2px 0; }
+.import-skipped li span { color: var(--muted); }
 
 /* Generation progress, drawn on the chart */
 .build-progress {

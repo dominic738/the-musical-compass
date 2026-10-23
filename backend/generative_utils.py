@@ -42,6 +42,10 @@ def get_openai_embeddings(texts, batch_size=100):
 
 MAX_CACHED_PHRASES = 500
 FETCH_BATCH_SIZE = 100
+# One vector per generated word lives in this namespace of the phrase index, so
+# the words can be listed without scanning every phrase. Its values are the
+# centroid of the word's phrases.
+WORDS_NAMESPACE = "words"
 
 
 def _field(obj, name):
@@ -85,25 +89,28 @@ def load_cached_phrases(word):
                 print(f"Incomplete phrase cache for '{word}' ({len(vectors)}/{expected}), regenerating")
                 return None
 
-        embeddings = [_field(vec, 'values') for vec in vectors.values()]
+        embeddings = np.array([_field(vec, 'values') for vec in vectors.values()])
         print(f"✓ Loaded {len(embeddings)} cached phrase embeddings for '{word}' from Pinecone")
-        return np.array(embeddings)
+        # Words cached before the word list existed get added to it here
+        register_word(word, embeddings, generation)
+        return embeddings
     except Exception as e:
         print(f"Pinecone fetch error for '{word}': {e}")
     return None
 
 
-def save_cached_phrases(word, embeddings):
+def save_cached_phrases(word, phrases, embeddings):
     """
-    Save phrase embeddings to Pinecone.
+    Save phrase embeddings to Pinecone, with each phrase's text as metadata.
     Each embedding gets stored as a separate vector, tagged with a generation ID
     and the total count so partial or stale sets can be detected on load.
     """
     try:
+        phrases = phrases[:MAX_CACHED_PHRASES]
         embeddings = embeddings[:MAX_CACHED_PHRASES]
         generation = uuid.uuid4().hex
         vectors = []
-        for i, embedding in enumerate(embeddings):
+        for i, (phrase, embedding) in enumerate(zip(phrases, embeddings)):
             vectors.append({
                 "id": f"{word.lower()}_{i}",
                 "values": embedding.tolist() if isinstance(embedding, np.ndarray) else embedding,
@@ -111,6 +118,7 @@ def save_cached_phrases(word, embeddings):
                     "word": word.lower(),
                     "generation": generation,
                     "total": len(embeddings),
+                    "text": phrase,
                 }
             })
         
@@ -121,16 +129,79 @@ def save_cached_phrases(word, embeddings):
             phrase_index.upsert(vectors=batch)
         
         print(f"✓ Cached {len(embeddings)} phrase embeddings for '{word}' in Pinecone")
+        register_word(word, embeddings, generation)
     except Exception as e:
         print(f"Pinecone upsert error for '{word}': {e}")
 
 
+def register_word(word, embeddings, generation=None):
+    """Add or refresh the word's entry in the word list."""
+    try:
+        centroid = np.mean(embeddings, axis=0)
+        metadata = {"word": word.lower(), "total": len(embeddings)}
+        if generation is not None:
+            metadata["generation"] = generation
+        phrase_index.upsert(
+            vectors=[{
+                "id": word.lower(),
+                "values": (centroid / np.linalg.norm(centroid)).tolist(),
+                "metadata": metadata,
+            }],
+            namespace=WORDS_NAMESPACE,
+        )
+    except Exception as e:
+        print(f"Couldn't register word '{word}': {e}")
+
+
+def list_words():
+    """Every word that has phrases cached, sorted."""
+    words = []
+    for ids in phrase_index.list(namespace=WORDS_NAMESPACE):
+        words.extend(ids)
+    return sorted(words)
+
+
+def count_words():
+    stats = phrase_index.describe_index_stats()
+    namespace = (_field(stats, 'namespaces') or {}).get(WORDS_NAMESPACE)
+    return int(_field(namespace, 'vector_count') or 0) if namespace else 0
+
+
+def load_phrase_texts(word):
+    """
+    The cached phrases for a word, most typical first (closest to the centroid,
+    the same order the axis filter ranks them in). Returns None if the word has
+    never been generated, and an empty list if it was cached before phrase text
+    was saved.
+    """
+    key = word.lower()
+    entry = (_field(phrase_index.fetch(ids=[key], namespace=WORDS_NAMESPACE), 'vectors') or {}).get(key)
+    if entry is None:
+        return None
+
+    meta = _field(entry, 'metadata') or {}
+    query_filter = {"word": {"$eq": key}}
+    if meta.get("generation"):
+        query_filter["generation"] = {"$eq": meta["generation"]}
+    result = phrase_index.query(
+        vector=_field(entry, 'values'),
+        top_k=min(int(meta.get("total") or MAX_CACHED_PHRASES), MAX_CACHED_PHRASES),
+        filter=query_filter,
+        include_metadata=True,
+        include_values=False,
+    )
+    texts = [(_field(m, 'metadata') or {}).get("text") for m in _field(result, 'matches') or []]
+    return [t for t in texts if t]
+
+
 def expand_word(word, model="gpt-4o-mini"):
     """
-    Generate 4 related emotional words using OpenAI.
+    Generate 4 close synonyms using OpenAI.
     Returns list with original word + 4 variations.
     """
-    prompt = f"Give me 4 different emotional words closely related to '{word}'. Simply list the words as a numbered list. Do not give me any other information."
+    # Synonyms, not feelings: asking for "emotional words" turned e.g. "nerdy"
+    # into "excited, passionate", so axes measured mood instead of meaning
+    prompt = f"Give me 4 words or short phrases that mean nearly the same thing as '{word}' (close synonyms, not feelings it causes). Simply list them as a numbered list. Do not give me any other information."
     
     response = client.chat.completions.create(
         model=model,
@@ -142,13 +213,16 @@ def expand_word(word, model="gpt-4o-mini"):
     text = response.choices[0].message.content
     words = re.findall(r'^\d+\.\s*(.+)', text, re.MULTILINE)
     
-    return [word] + words
+    return [word] + [w.strip() for w in words if w.strip()]
 
 
 def make_prompt_variants(word):
     """
     Generate diverse prompts for phrase generation.
     Expands word into 5 variants, creates 10 prompts per variant = 50 total prompts.
+    Phrases are written as song lyrics in a fixed spread of styles and moods, so
+    they look like the lyrics they're compared against and every word gets the
+    same mix of tones (otherwise tone, not meaning, separates the two poles).
     """
     all_prompts = []
     
@@ -156,16 +230,16 @@ def make_prompt_variants(word):
     
     for w in words:
         all_prompts += [
-            f"Give me 5 short, emotionally raw phrases expressing extreme {w}. Format as a numbered list.",
-            f"Write 5 expressive slang phrases that capture extreme {w}, like something said on social media.",
-            f"Write 5 poetic phrases that convey intense {w}. Avoid clichés.",
-            f"Write 5 brutally honest things someone might say to a friend when feeling extreme {w}.",
-            f"Write 5 dramatic declarations of {w}, like someone screaming it in a movie.",
-            f"Give 5 diary-style phrases capturing the feeling of overwhelming {w}.",
-            f"Write 5 lines that describe what extreme {w} feels like, using metaphors or body sensations.",
-            f"What would someone mutter to themselves under their breath if they were overcome with {w}? Give 5 phrases.",
-            f"Write 5 short lines that someone might text to a friend in the middle of feeling extreme {w}.",
-            f"Give 5 phrases that capture intense {w} without using the actual word '{w}'.",
+            f"Write 5 rap lyric lines about being {w}. Format as a numbered list.",
+            f"Write 5 pop song lyric lines where the singer is clearly {w}. Format as a numbered list.",
+            f"Write 5 lines from a slow, sad song by someone who is {w}. Format as a numbered list.",
+            f"Write 5 boastful, confident lyric lines from a singer who is {w}. Format as a numbered list.",
+            f"Write 5 low-key, everyday lyric lines that quietly show someone is {w}, without using the word. Format as a numbered list.",
+            f"Write 5 rock or punk lyric lines about a {w} life. Format as a numbered list.",
+            f"Write 5 country or folk lyric lines describing someone {w}. Format as a numbered list.",
+            f"Write 5 playful, funny lyric lines about being {w}. Format as a numbered list.",
+            f"Write 5 lyric lines describing what a {w} person does on a typical night. Format as a numbered list.",
+            f"Write 5 short song lyric lines that are unmistakably about being {w}. Format as a numbered list.",
         ]
     
     return all_prompts
@@ -227,7 +301,7 @@ def generate_dynamic_axis_phrases(word, model_name="gpt-4o-mini", max_workers=20
     # Embed the phrases using OpenAI
     embeddings = get_openai_embeddings(phrases_list)
     
-    # Save embeddings to Pinecone (don't need to save phrases)
-    save_cached_phrases(word, embeddings)
+    # Save to Pinecone; the text is kept so people can see what a word means
+    save_cached_phrases(word, phrases_list, embeddings)
     
     return embeddings

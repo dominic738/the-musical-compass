@@ -25,6 +25,7 @@
       <span class="brand-name">The Musical Compass</span>
     </a>
     <p class="lede">A political compass for songs. Name four feelings, add songs, and see where their lyrics put them.</p>
+    <p id="siteStats" class="site-stats" hidden></p>
     <button id="tutorialBtn" class="link-btn">How it works</button>
   </header>
 
@@ -34,22 +35,25 @@
     <div class="axis-fields">
       <label class="field">
         <span class="field-label">Up</span>
-        <input type="text" id="yPos" placeholder="Angry" maxlength="50" autocomplete="off" />
+        <input type="text" id="yPos" list="knownWords" placeholder="Angry" maxlength="50" autocomplete="off" />
       </label>
       <label class="field">
         <span class="field-label">Down</span>
-        <input type="text" id="yNeg" placeholder="Calm" maxlength="50" autocomplete="off" />
+        <input type="text" id="yNeg" list="knownWords" placeholder="Calm" maxlength="50" autocomplete="off" />
       </label>
       <label class="field">
         <span class="field-label">Left</span>
-        <input type="text" id="xNeg" placeholder="Sad" maxlength="50" autocomplete="off" />
+        <input type="text" id="xNeg" list="knownWords" placeholder="Sad" maxlength="50" autocomplete="off" />
       </label>
       <label class="field">
         <span class="field-label">Right</span>
-        <input type="text" id="xPos" placeholder="Happy" maxlength="50" autocomplete="off" />
+        <input type="text" id="xPos" list="knownWords" placeholder="Happy" maxlength="50" autocomplete="off" />
       </label>
     </div>
+    <datalist id="knownWords"></datalist>
     <button id="generateBtn" class="btn btn-primary">Generate compass</button>
+    <button id="browseWordsBtn" class="link-btn axis-link" hidden>Browse words people have used</button>
+    <button id="phrasesBtn" class="link-btn axis-link" hidden>See the phrases behind these words</button>
   </section>
 
   <!-- Step 2 -->
@@ -78,6 +82,7 @@
       </div>
     </div>
     <button id="addSongBtn" class="btn btn-primary">Add song</button>
+    <button id="importBtn" class="link-btn import-link">Or import a Spotify playlist</button>
   </section>
 
   <!-- Songs -->

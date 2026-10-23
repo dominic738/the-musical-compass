@@ -1,7 +1,7 @@
-import sys, os
+import sys, os, time
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import generative_utils as cu
@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor, wait
 import uvicorn
 import numpy as np
 from pinecone import Pinecone
+from spotipy.exceptions import SpotifyException
 
 
 app = FastAPI()
@@ -64,6 +65,14 @@ class SongRequest(BaseModel):
 
 class LyricsRequest(SongRequest):
     lyrics: str = Field(min_length=1, max_length=20000)
+
+
+class ExplainRequest(BaseModel):
+    lyrics: str = Field(min_length=1, max_length=20000)
+    axis_x: list[float] = Field(min_length=eu.EMBEDDING_DIM, max_length=eu.EMBEDDING_DIM)
+    axis_y: list[float] = Field(min_length=eu.EMBEDDING_DIM, max_length=eu.EMBEDDING_DIM)
+    offset_x: float = 0
+    offset_y: float = 0
 
 
 class ResetRequest(BaseModel):
@@ -141,13 +150,20 @@ def generate_axes(body: AxesRequest):
 @app.post("/get-playlist-tracks")
 def get_playlist(body: PlaylistRequest):
     try:
-        playlist = su.get_playlist(body.playlist_url)
+        tracks, total = su.get_playlist(body.playlist_url.strip())
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
+    except SpotifyException as e:
+        print(f"Spotify error for '{body.playlist_url}': {e}", flush=True)
+        if e.http_status == 404:
+            # Also what Spotify returns for its own editorial and algorithmic playlists
+            raise HTTPException(status_code=404, detail="Couldn't open that playlist. It has to be public and made by a person, not by Spotify.")
+        if e.http_status == 400 or e.http_status == -1:
+            raise HTTPException(status_code=400, detail="That doesn't look like a Spotify playlist link.")
+        raise HTTPException(status_code=502, detail="Spotify isn't responding. Please try again.")
 
-    print(f"Found {len(playlist)} tracks in playlist", flush=True)
-    tracks = [{"title": title, "artist": artist} for title, artist in playlist.items()]
-    return {"tracks": tracks}
+    print(f"Found {len(tracks)} usable tracks of {total} in playlist", flush=True)
+    return {"tracks": tracks, "total": total, "limit": su.MAX_PLAYLIST_TRACKS}
 
 
 @app.post("/check-song")
@@ -186,6 +202,72 @@ def embed_song(body: LyricsRequest):
 
     print(f'✓ Embedding ready for: {title}', flush=True)
     return {"embedding": weighted_embedding.tolist()}
+
+
+@app.post("/explain-lyrics")
+def explain_song(body: ExplainRequest):
+    """Each lyric line's share of a song's position on the given axes."""
+    try:
+        lines = eu.explain_lyrics(body.lyrics, body.axis_x, body.offset_x, body.axis_y, body.offset_y)
+    except Exception as e:
+        print(f"Error explaining song: {e}", flush=True)
+        raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
+
+    if not lines:
+        raise HTTPException(status_code=400, detail="No usable lyrics found.")
+    return {"lines": lines}
+
+
+@app.get("/phrases")
+def get_phrases(word: str = Query(min_length=1, max_length=50)):
+    """The phrases written for a word, most typical first."""
+    try:
+        phrases = cu.load_phrase_texts(word.strip())
+    except Exception as e:
+        print(f"Error loading phrases for '{word}': {e}", flush=True)
+        raise HTTPException(status_code=502, detail="Couldn't load the phrases. Please try again.")
+
+    if phrases is None:
+        raise HTTPException(status_code=404, detail=f"No phrases have been written for '{word}' yet.")
+    return {"word": word.strip().lower(), "phrases": phrases, "used": eu.CENTROID_TOP_K}
+
+
+# The word list and counts are shown on every page load, so don't ask
+# Pinecone more than once a minute
+LISTING_CACHE_SECONDS = 60
+_listing_cache = {}
+
+
+def cached_listing(key, compute):
+    hit = _listing_cache.get(key)
+    if hit and time.monotonic() - hit[0] < LISTING_CACHE_SECONDS:
+        return hit[1]
+    value = compute()
+    _listing_cache[key] = (time.monotonic(), value)
+    return value
+
+
+@app.get("/words")
+def get_words():
+    """Every word anyone has built a compass with."""
+    try:
+        return {"words": cached_listing("words", cu.list_words)}
+    except Exception as e:
+        print(f"Error listing words: {e}", flush=True)
+        raise HTTPException(status_code=502, detail="Couldn't load the word list.")
+
+
+@app.get("/stats")
+def get_stats():
+    """How many distinct songs and words have been embedded."""
+    def compute():
+        songs = song_index.describe_index_stats()
+        return {"songs": int(songs.total_vector_count or 0), "words": cu.count_words()}
+    try:
+        return cached_listing("stats", compute)
+    except Exception as e:
+        print(f"Error reading stats: {e}", flush=True)
+        raise HTTPException(status_code=502, detail="Couldn't load stats.")
 
 
 @app.post("/reset-pinecone")
@@ -227,6 +309,7 @@ def reset_pinecone(request: Request, body: ResetRequest):
         try:
             print("Deleting all vectors from phrase-embeddings...", flush=True)
             phrase_index.delete(delete_all=True, namespace="")
+            phrase_index.delete(delete_all=True, namespace=cu.WORDS_NAMESPACE)
             results.append("phrase-embeddings: deleted")
         except Exception as e:
             if "not found" in str(e).lower():

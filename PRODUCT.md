@@ -35,7 +35,7 @@ Most music maps sort by genre, audio features or popularity. This one reads only
 - Songs: title + artist; any script (non-Latin titles and lyrics supported).
 - Placement is relative to the midpoint between each axis's two pole words, squashed with a sigmoid into the [-1, 1] square.
 - Plain HTML/CSS/JS, no build step, no framework, no external scripts; the Arimo font is self-hosted.
-- Spotify playlist import exists in the backend but is disabled in the UI.
+- Spotify playlist import: paste a public, user-made playlist link; up to 100 songs, each looked up on LRCLIB and skipped if no lyrics are found. Spotify-owned playlists can't be read by the API.
 - Undecided: saving/sharing compasses by URL; per-song detail beyond position.
 
 ## Brand Commitments

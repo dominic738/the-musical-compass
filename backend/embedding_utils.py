@@ -25,6 +25,10 @@ EMBEDDING_MODEL = "text-embedding-3-small"
 EMBEDDING_DIM = 1536
 # Pasted lyrics are cached for everyone, so reject obviously incomplete pastes
 MIN_LYRIC_LINES = 4
+# Explaining a song embeds every distinct line again, so cap the cost
+MAX_EXPLAIN_LINES = 300
+# Each axis is fit on the phrases closest to their word's centroid
+CENTROID_TOP_K = 100
 
 
 def get_openai_embeddings(texts, batch_size=100):
@@ -49,7 +53,7 @@ def get_openai_embeddings(texts, batch_size=100):
     return np.array(all_embeddings)
 
 
-def filter_to_centroid(phrases, embeddings, top_k=100):
+def filter_to_centroid(phrases, embeddings, top_k=CENTROID_TOP_K):
     """Filter embeddings to top_k closest to centroid"""
     centroid = np.mean(embeddings, axis=0, keepdims=True)
     sims = cosine_similarity(embeddings, centroid).flatten()
@@ -124,6 +128,33 @@ def compute_axis_svm(axis1_embeddings, axis2_embeddings, filter_emb=True):
     offset = -float(np.dot(axis, midpoint))
 
     return axis, offset
+
+def explain_lyrics(lyrics_text, axis_x, offset_x, axis_y, offset_y):
+    """
+    Split a song's position into each lyric line's share of it.
+    The song embedding is the count-weighted mean of its line embeddings, normalised,
+    so its raw score on an axis is exactly the sum over lines of
+    (count / total) * (line . axis / |mean| + offset).
+    Returns [{"text", "count", "x", "y"}] where x and y are those shares.
+    Lyrics are only used here, never stored.
+    """
+    line_counts = count_lines(lu.lyrics_preprocessing(lyrics_text))
+    unique_lines = list(line_counts.keys())[:MAX_EXPLAIN_LINES]
+    if not unique_lines:
+        return []
+
+    counts = np.array([line_counts[line] for line in unique_lines], dtype=float)
+    weights = counts / counts.sum()
+    embeddings = get_openai_embeddings(unique_lines)
+    mean_norm = np.linalg.norm(weights @ embeddings)
+
+    x = weights * (embeddings @ np.asarray(axis_x) / mean_norm + offset_x)
+    y = weights * (embeddings @ np.asarray(axis_y) / mean_norm + offset_y)
+    return [
+        {"text": line, "count": int(count), "x": float(lx), "y": float(ly)}
+        for line, count, lx, ly in zip(unique_lines, counts, x, y)
+    ]
+
 
 def get_weighted_embedding_from_lyrics(title, artist, lyrics_text):
     """
