@@ -5,7 +5,7 @@ openai>=1.0.0
 spotipy==2.25.1
 lyricsgenius==3.6.4
 pandas==2.3.0
-pinecone
+pinecone==8.0.0
 numpy==2.3.1
 scikit-learn==1.7.0
 scipy==1.16.0

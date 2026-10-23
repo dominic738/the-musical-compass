@@ -167,8 +167,9 @@ def list_words():
     """Every word that has phrases cached, sorted."""
     words = []
     for ids in phrase_index.list(namespace=WORDS_NAMESPACE):
-        words.extend(ids)
-    return sorted(words)
+        # Older SDKs yield plain ID strings, newer ones objects with an .id
+        words.extend(i if isinstance(i, str) else _field(i, 'id') for i in ids)
+    return sorted(w for w in words if w)
 
 
 def count_words():
