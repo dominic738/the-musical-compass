@@ -157,8 +157,10 @@ function updateItemStatus(modal, id, status) {
   if (row) row.dataset.state = status;
 }
 
-async function generateAxes() {
-  if (document.getElementById("generateBtn").disabled) return;  // already building
+// Returns true once the compass is built. A shared link passes fromShare so
+// opening someone else's compass doesn't earn achievements.
+async function generateAxes({ fromShare = false } = {}) {
+  if (document.getElementById("generateBtn").disabled) return false;  // already building
 
   const xPos = document.getElementById("xPos").value.trim();
   const xNeg = document.getElementById("xNeg").value.trim();
@@ -219,7 +221,7 @@ async function generateAxes() {
     currentOffsetX = data.offset_x ?? 0;
     currentOffsetY = data.offset_y ?? 0;
     document.getElementById("phrasesBtn").hidden = false;
-    checkCompassAchievements(data.new_words);
+    if (!fromShare) checkCompassAchievements(data.new_words);
     document.getElementById("songTitle").focus();
     // New words may have just been written
     loadKnownWords();
@@ -234,10 +236,12 @@ async function generateAxes() {
       modal.close();
       toast(`Couldn't generate the compass: ${error.message}`, "error", 6000);
     }, 1500);
+    return false;
   } finally {
     setButtonLoading(generateBtn, false);
     addBtn.disabled = false;
   }
+  return true;
 }
 
 // --- Adding songs ---------------------------------------------------------------
@@ -697,7 +701,7 @@ function freeDotSpot(x, y) {
 
 // Returns the new song's id. `quiet` skips selecting and scrolling, for bulk imports.
 // `lyrics`, when known, are kept in memory only, for "Why is it here?".
-function plotSong(title, artist, rawX, rawY, color, { quiet = false, lyrics = null, isNew = false, pasted = false } = {}) {
+function plotSong(title, artist, rawX, rawY, color, { quiet = false, lyrics = null, isNew = false, pasted = false, fromShare = false } = {}) {
   const layer = document.getElementById("songLayer");
   const nx = sigmoidScaled(rawX);
   const ny = sigmoidScaled(rawY);
@@ -789,7 +793,7 @@ function plotSong(title, artist, rawX, rawY, color, { quiet = false, lyrics = nu
   });
   const song = songs[songs.length - 1];
   queueItunes(song);
-  checkSongAchievements(song, { isNew, pasted });
+  if (!fromShare) checkSongAchievements(song, { isNew, pasted });
   if (quiet) renderSongList();
   else selectSong(id);
   return id;
@@ -1434,6 +1438,7 @@ function drawAxisLabels(xLeft, xRight, yTop, yBottom) {
   drawFlairs();
   document.getElementById("emptyState").hidden = true;
   document.getElementById("saveBtn").disabled = false;
+  document.getElementById("shareBtn").disabled = false;
   clearSongs();
 }
 
@@ -1624,6 +1629,124 @@ function selectColor(color, fromCustom = false) {
   custom.setAttribute("aria-pressed", String(fromCustom));
 }
 
+// --- Sharing ----------------------------------------------------------------------------
+// The whole compass travels in the link: the four words plus each song's title,
+// artist and colour, compressed into the #fragment. Opening it rebuilds the
+// compass from the backend's caches, so scores come out the same.
+
+const SHARE_PREFIX_COMPRESSED = "#c=";
+const SHARE_PREFIX_PLAIN = "#u=";  // for browsers without CompressionStream
+const MAX_SHARED_SONGS = 100;
+
+function bytesToBase64Url(bytes) {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function base64UrlToBytes(text) {
+  const binary = atob(text.replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(binary, c => c.charCodeAt(0));
+}
+
+async function pipeBytes(bytes, stream) {
+  const piped = new Blob([bytes]).stream().pipeThrough(stream);
+  return new Uint8Array(await new Response(piped).arrayBuffer());
+}
+
+async function encodeShare(data) {
+  const bytes = new TextEncoder().encode(JSON.stringify(data));
+  if (typeof CompressionStream === "undefined") return SHARE_PREFIX_PLAIN + bytesToBase64Url(bytes);
+  return SHARE_PREFIX_COMPRESSED + bytesToBase64Url(await pipeBytes(bytes, new CompressionStream("deflate-raw")));
+}
+
+async function decodeShare(hash) {
+  let bytes;
+  if (hash.startsWith(SHARE_PREFIX_COMPRESSED)) {
+    bytes = await pipeBytes(base64UrlToBytes(hash.slice(SHARE_PREFIX_COMPRESSED.length)), new DecompressionStream("deflate-raw"));
+  } else if (hash.startsWith(SHARE_PREFIX_PLAIN)) {
+    bytes = base64UrlToBytes(hash.slice(SHARE_PREFIX_PLAIN.length));
+  } else {
+    return null;
+  }
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+
+async function shareCompass() {
+  if (!builtWords) return;
+  const w = builtWords;
+  const data = {
+    v: 1,
+    w: [w.xNeg, w.xPos, w.yNeg, w.yPos],
+    s: songs.map(s => [s.title, s.artist, s.color.replace("#", "")]),
+  };
+  try {
+    const url = location.origin + location.pathname + await encodeShare(data);
+    await navigator.clipboard.writeText(url);
+    toast(songs.length ? `Link copied. It opens this compass with all ${plural(songs.length, "song")}.` : "Link copied.");
+    unlock("spread_the_word");
+  } catch (e) {
+    console.error(e);
+    toast("Couldn't copy the link.", "error");
+  }
+}
+
+async function loadSharedCompass() {
+  let data;
+  try {
+    data = await decodeShare(location.hash);
+  } catch (e) {
+    console.error(e);
+    toast("That shared link is broken or incomplete.", "error", 6000);
+    return;
+  }
+  if (!data || !Array.isArray(data.w) || data.w.length !== 4) return;
+  // The link has done its job; a refresh or later edits shouldn't reload it
+  history.replaceState(null, "", location.pathname + location.search);
+
+  const [xNeg, xPos, yNeg, yPos] = data.w.map(x => String(x).slice(0, 50));
+  Object.entries({ xNeg, xPos, yNeg, yPos }).forEach(([id, value]) => { document.getElementById(id).value = value; });
+  syncAxisLabels();
+  if (!await generateAxes({ fromShare: true })) return;
+
+  const shared = (Array.isArray(data.s) ? data.s : []).slice(0, MAX_SHARED_SONGS)
+    .filter(s => Array.isArray(s) && s[0] && s[1])
+    .map(([title, artist, color]) => ({
+      title: String(title).slice(0, 200),
+      artist: String(artist).slice(0, 200),
+      color: /^[0-9a-f]{6}$/i.test(color) ? `#${color}` : selectedColor,
+    }));
+  if (!shared.length) return;
+
+  toast(`Loading ${plural(shared.length, "song")}…`);
+  // Look songs up a few at a time, then plot in the original order so labels
+  // settle the same way they did for whoever shared it
+  const found = new Array(shared.length).fill(null);
+  let next = 0;
+  const worker = async () => {
+    while (next < shared.length) {
+      const i = next++;
+      try {
+        found[i] = await lookupSong(shared[i].title, shared[i].artist);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: IMPORT_CONCURRENCY }, worker));
+
+  let lastId = null, placed = 0;
+  shared.forEach((song, i) => {
+    if (!found[i]) return;
+    const { x, y } = projectEmbedding(found[i].embedding);
+    lastId = plotSong(song.title, song.artist, x, y, song.color, { quiet: true, lyrics: found[i].lyrics, fromShare: true });
+    placed++;
+  });
+  if (lastId !== null) selectSong(lastId);
+  const missing = shared.length - placed;
+  toast(missing ? `Loaded ${placed} of ${shared.length} songs; ${missing} couldn't be found.` : `Loaded ${plural(placed, "song")}.`);
+}
+
 // --- Achievements -------------------------------------------------------------------
 // Saved in this browser only. Some unlock new dot colours.
 
@@ -1681,6 +1804,7 @@ const GLYPHS = {
   eye: `<path d="M11 24c4-7 9-9 13-9s9 2 13 9c-4 7-9 9-13 9s-9-2-13-9z" fill="#fff" stroke="#000" stroke-width="2"/><circle cx="24" cy="24" r="4.5" fill="#000"/>`,
   note: `<path d="M27 14v16" stroke="#000" stroke-width="2.2"/><path d="M27 14c4 1 6 3 7 6" fill="none" stroke="#000" stroke-width="2.2"/><ellipse cx="23" cy="30" rx="4.5" ry="3.5" fill="#000"/>`,
   waves: `<path d="M13 20c4-4 7 4 11 0s7 4 11 0M13 28c4-4 7 4 11 0s7 4 11 0" fill="none" stroke="#000" stroke-width="2.4"/>`,
+  link: `<path d="M21 27l6-6" stroke="#000" stroke-width="2.4"/><path d="M22 17l3-3a5 5 0 0 1 7 7l-3 3M26 31l-3 3a5 5 0 0 1-7-7l3-3" fill="none" stroke="#000" stroke-width="2.4"/>`,
   crown: `<path d="M12 31l-1-14 7 6 6-9 6 9 7-6-1 14z" fill="#FFC93C" stroke="#000" stroke-width="2" stroke-linejoin="round"/>`,
 };
 
@@ -1746,6 +1870,8 @@ const ACHIEVEMENTS = [
     desc: "Play a song preview.", art: artGlyph("#9AED97", GLYPHS.headphones) },
   { id: "shutterbug", group: "Exploring", name: "Shutterbug", rarity: "common",
     desc: "Save your compass as an image.", art: artGlyph("#FF7575", GLYPHS.camera) },
+  { id: "spread_the_word", group: "Exploring", name: "Spread the Word", rarity: "common",
+    desc: "Copy a link to share your compass.", art: artGlyph("#FFC93C", GLYPHS.link) },
 
   // Hidden until unlocked
   { id: "self_aware", group: "Hidden", hidden: true, name: "Self-Aware", rarity: "rare",
@@ -1994,11 +2120,12 @@ function openAchievementsModal() {
 // --- Init -------------------------------------------------------------------------
 
 window.onload = () => {
-  document.getElementById("generateBtn").addEventListener("click", generateAxes);
+  document.getElementById("generateBtn").addEventListener("click", () => generateAxes());
   document.getElementById("addSongBtn").addEventListener("click", addSong);
   document.getElementById("importBtn").addEventListener("click", openImportModal);
   document.getElementById("clearBtn").addEventListener("click", clearSongs);
   document.getElementById("saveBtn").addEventListener("click", saveImage);
+  document.getElementById("shareBtn").addEventListener("click", shareCompass);
 
   // Enter submits the relevant step
   for (const id of Object.keys(AXIS_INPUTS)) {
@@ -2051,5 +2178,6 @@ window.onload = () => {
   document.getElementById("achievementsBtn").addEventListener("click", openAchievementsModal);
   updateAchievementsLink();
   renderRewardSwatches();
+  if (location.hash.length > 3) loadSharedCompass();
   new ResizeObserver(updateScale).observe(document.getElementById("graph"));
 };

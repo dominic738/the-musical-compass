@@ -377,6 +377,7 @@ input[type="text"]:focus, textarea:focus { outline: none; border-color: var(--in
 .result-flair { margin-top: 12px; display: inline-flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 700; }
 .result-flair .flair-chip { width: 16px; height: 16px; border-width: 2px; }
 
+.result-actions { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
 .btn-secondary { flex-shrink: 0; border-width: 1px; font-weight: 400; padding: 7px 12px; font-size: 14px; }
 
 /* ------------------------------------------------------------------ modals */
@@ -652,7 +653,8 @@ input[type="text"]:focus, textarea:focus { outline: none; border-color: var(--in
 
 @media (max-width: 420px) {
   .brand-name { font-size: 20px; }
-  .result .btn-secondary { width: 100%; }
+  .result-actions { flex-direction: row; width: 100%; }
+  .result .btn-secondary { flex: 1; }
 }
 
 @media (prefers-reduced-motion: reduce) {

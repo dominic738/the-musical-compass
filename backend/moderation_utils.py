@@ -51,7 +51,8 @@ SUBSTRING_LENGTHS = {4, 5, 6, 7, 8, 9, 10, 11, 12}  # lengths of the entries abo
 
 # Real words that contain a blocked substring once squashed. Checked before
 # squashing, so a slur that squashes to the same letters isn't let through.
-ALLOWED_WORDS = {"niger", "nigeria", "nigerian", "nigerians", "snigger", "sniggers", "sniggering"}
+ALLOWED_WORDS = {"niger", "nigeria", "nigerian", "nigerians", "snigger", "sniggers", "sniggering",
+                 "scunthorpe", "swank", "swanky"}
 
 # Short or ambiguous terms, matched only as whole words so ordinary words containing
 # them are fine. Compared as typed and with runs of 3+ letters cut to 2.
@@ -81,6 +82,39 @@ SQUASHABLE_WORD_HASHES = {
 
 MODERATION_CATEGORIES = ["hate", "hate/threatening", "harassment/threatening"]
 
+# Crude but not hateful: allowed on a compass, kept out of the public word list.
+# Same hashing and matching as the blocklist above.
+CRUDE_SUBSTRING_HASHES = {
+    "07ce604cb27afed2", "09c1ee14564b9589", "2ce37f9399ed3a70", "53270cbac4785080",
+    "7ca445110d23b977", "d0d1abd3a4861b93", "fba35942a05edcb0",
+}
+CRUDE_SUBSTRING_LENGTHS = {3, 4}
+CRUDE_WORD_HASHES = {
+    "08ae9d7861402fc0", "0f563ab17f410697", "115f01d686599b3f", "1390fe86996f77fa",
+    "193865cc2cb45cf8", "233490f270cac7bd", "3808fa2eb4071eae", "4199f248003c9fa8",
+    "476c0ddb7342b162", "4ef4fffdbb8e016b", "549ad48b4d589c7c", "56cc5d7817f3a4a0",
+    "5cfa400d7ea3889b", "6701269369cad66d", "7a83cc21de59aa31", "7c3efaef15b1cbfd",
+    "7ca8d6002e07d04a", "7ec84024385a14b2", "81efe7ea031d6de6", "8286a1ae3ccfffab",
+    "86d60601392d3278", "8f7457d2a48f0117", "a441cd3a8ab85577", "a8520c0eb126da55",
+    "aaca8c5a79d402e0", "b9a53c5d129c2d4e", "c1de25db06ce3ecc", "d20e05dda6f3769c",
+    "d4a4f9f148f2cfcf", "d5cd12713212f2cf", "d837e469709bea34", "dd35cd11b018ef99",
+    "f0cf30e6c02281d8",
+}
+CRUDE_SQUASHABLE_HASHES = {
+    "08ae9d7861402fc0", "0f563ab17f410697", "115f01d686599b3f", "1390fe86996f77fa",
+    "233490f270cac7bd", "3808fa2eb4071eae", "4199f248003c9fa8", "4ef4fffdbb8e016b",
+    "56cc5d7817f3a4a0", "5cfa400d7ea3889b", "6701269369cad66d", "7ca8d6002e07d04a",
+    "7ec84024385a14b2", "81efe7ea031d6de6", "86d60601392d3278", "8f7457d2a48f0117",
+    "a8520c0eb126da55", "aaca8c5a79d402e0", "d20e05dda6f3769c", "d4a4f9f148f2cfcf",
+    "d5cd12713212f2cf", "d837e469709bea34", "dd35cd11b018ef99", "f0cf30e6c02281d8",
+}
+
+# The public word list also hides words moderation scores as sexual or insulting.
+# Tuned on real words: "horny" scores 0.57 sexual and "lesbian" 0.21, so 0.25
+# hides the first without hiding identity words.
+PUBLIC_SEXUAL_MAX = 0.25
+PUBLIC_HARASSMENT_MAX = 0.15
+
 
 def _letters(text):
     """Lowercase, strip accents, undo leetspeak, keep only letters and spaces."""
@@ -89,24 +123,34 @@ def _letters(text):
     return re.sub(r"[^\w\s]|[\d_]", "", text)
 
 
-def _on_blocklist(word):
+def _matches(word, word_hashes, squashable_hashes, substring_hashes, substring_lengths):
     raw = _letters(word).split()
-    if any(_hash(t) in BLOCKED_WORD_HASHES for t in raw):
+    if any(_hash(t) in word_hashes for t in raw):
         return True
     tokens = [re.sub(r"(.)\1{2,}", r"\1\1", t) for t in raw]
     # A word spelled out one letter at a time
     if len(tokens) > 1 and all(len(t) == 1 for t in tokens):
         tokens = ["".join(tokens)]
-    if any(_hash(t) in BLOCKED_WORD_HASHES or _hash(_squash(t)) in SQUASHABLE_WORD_HASHES for t in tokens):
+    if any(_hash(t) in word_hashes or _hash(_squash(t)) in squashable_hashes for t in tokens):
         return True
 
     # Joined before squashing so multi-word forms are caught as well
     joined = _squash("".join(t for t in tokens if t not in ALLOWED_WORDS))
     return any(
-        _hash(joined[i:i + n]) in BLOCKED_SUBSTRING_HASHES
-        for n in SUBSTRING_LENGTHS
+        _hash(joined[i:i + n]) in substring_hashes
+        for n in substring_lengths
         for i in range(len(joined) - n + 1)
     )
+
+
+def _on_blocklist(word):
+    return _matches(word, BLOCKED_WORD_HASHES, SQUASHABLE_WORD_HASHES,
+                    BLOCKED_SUBSTRING_HASHES, SUBSTRING_LENGTHS)
+
+
+def _is_crude(word):
+    return _matches(word, CRUDE_WORD_HASHES, CRUDE_SQUASHABLE_HASHES,
+                    CRUDE_SUBSTRING_HASHES, CRUDE_SUBSTRING_LENGTHS)
 
 
 def _flagged_by_moderation(word):
@@ -126,6 +170,34 @@ def is_blocked_word(word, use_moderation=True):
     if _on_blocklist(word):
         return True
     return use_moderation and _flagged_by_moderation(word)
+
+
+_public_cache = {}
+
+
+def is_public_word(word):
+    """
+    Whether a word is clean enough to show strangers in the word list. Words
+    that fail can still be used; they just aren't advertised. Fails closed:
+    if moderation can't be reached, the word stays hidden until next time.
+    """
+    key = word.lower()
+    if key in _public_cache:
+        return _public_cache[key]
+    if _on_blocklist(key) or _is_crude(key):
+        _public_cache[key] = False
+        return False
+    try:
+        result = client.moderations.create(model="omni-moderation-latest", input=key).results[0]
+    except Exception as e:
+        print(f"Moderation check failed for '{key}': {e}", flush=True)
+        return False
+    scores = result.category_scores.model_dump(by_alias=True)
+    public = not (result.flagged
+                  or scores.get("sexual", 0) >= PUBLIC_SEXUAL_MAX
+                  or scores.get("harassment", 0) >= PUBLIC_HARASSMENT_MAX)
+    _public_cache[key] = public
+    return public
 
 
 if __name__ == "__main__" and len(sys.argv) == 3 and sys.argv[1] in ("word", "substring"):

@@ -262,13 +262,19 @@ def cached_listing(key, compute):
     return value
 
 
+def public_words():
+    """The word list minus slurs and crude words; those still work, they just aren't shown."""
+    words = cu.list_words()
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        public = list(executor.map(mu.is_public_word, words))
+    return [w for w, ok in zip(words, public) if ok]
+
+
 @app.get("/words")
 def get_words():
     """Every word anyone has built a compass with."""
     try:
-        # Words cached before the filter existed are hidden too
-        words = cached_listing("words", cu.list_words)
-        return {"words": [w for w in words if not mu.is_blocked_word(w, use_moderation=False)]}
+        return {"words": cached_listing("words", public_words)}
     except Exception as e:
         print(f"Error listing words: {e}", flush=True)
         raise HTTPException(status_code=502, detail="Couldn't load the word list.")
