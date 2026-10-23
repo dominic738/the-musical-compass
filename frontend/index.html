@@ -26,7 +26,10 @@
     </a>
     <p class="lede">A political compass for songs. Name four feelings, add songs, and see where their lyrics put them.</p>
     <p id="siteStats" class="site-stats" hidden></p>
-    <button id="tutorialBtn" class="link-btn">How it works</button>
+    <div class="head-links">
+      <button id="tutorialBtn" class="link-btn">How it works</button>
+      <button id="achievementsBtn" class="link-btn">Achievements</button>
+    </div>
   </header>
 
   <!-- Step 1 -->
@@ -76,6 +79,7 @@
         <button type="button" class="swatch" data-color="#FFD400" style="--c:#FFD400" aria-label="Yellow"></button>
         <button type="button" class="swatch" data-color="#FF7A00" style="--c:#FF7A00" aria-label="Orange"></button>
         <button type="button" class="swatch" data-color="#1638A8" style="--c:#1638A8" aria-label="Navy"></button>
+        <span id="rewardSwatches" class="reward-swatches"></span>
         <label class="swatch swatch-custom" title="Custom colour">
           <input type="color" id="customColor" value="#E10600" aria-label="Custom colour" />
         </label>
@@ -166,6 +170,7 @@
   </div>
 
   <div id="toasts" class="toasts" aria-live="polite"></div>
+  <div id="achievementToasts" class="ach-toasts" aria-live="polite"></div>
 
   <script src="script.js"></script>
 </body>

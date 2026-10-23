@@ -113,6 +113,10 @@ def generate_axes(body: AxesRequest):
         print(f"Blocked axis words: {blocked}", flush=True)
         raise HTTPException(status_code=400, detail="One or more of those words isn't allowed. Please pick different words.")
 
+    # Lets the frontend celebrate a word nobody has used before
+    already_known = cu.known_words(words.keys())
+    new_words = [w for key, w in words.items() if key not in already_known]
+
     # Generate phrases for all words in parallel. Not using a `with` block: its
     # exit waits for every thread, which would defeat the timeout.
     executor = ThreadPoolExecutor(max_workers=len(words))
@@ -152,6 +156,7 @@ def generate_axes(body: AxesRequest):
         "axis_y": axis_y.tolist(),
         "offset_x": offset_x,
         "offset_y": offset_y,
+        "new_words": new_words,
     }
 
 

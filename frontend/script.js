@@ -219,6 +219,7 @@ async function generateAxes() {
     currentOffsetX = data.offset_x ?? 0;
     currentOffsetY = data.offset_y ?? 0;
     document.getElementById("phrasesBtn").hidden = false;
+    checkCompassAchievements(data.new_words);
     document.getElementById("songTitle").focus();
     // New words may have just been written
     loadKnownWords();
@@ -263,7 +264,7 @@ async function addSong() {
     const found = await lookupSong(title, artist, () => { addBtn.textContent = "Reading lyrics…"; });
     if (found) {
       const { x, y } = projectEmbedding(found.embedding);
-      plotSong(title, artist, x, y, color, { lyrics: found.lyrics });
+      plotSong(title, artist, x, y, color, { lyrics: found.lyrics, isNew: Boolean(found.lyrics) });
       clearSongInputs();
     } else {
       openLyricsModal({ title, artist, color });
@@ -458,7 +459,7 @@ function openLyricsModal({ title, artist, color }) {
 async function embedAndPlotWithLyrics({ title, artist, lyrics, color }) {
   try {
     const { x, y } = projectEmbedding(await embedLyrics(title, artist, lyrics));
-    plotSong(title, artist, x, y, color, { lyrics });
+    plotSong(title, artist, x, y, color, { lyrics, isNew: true, pasted: true });
     return true;
   } catch (e) {
     console.error(e);
@@ -591,7 +592,7 @@ async function runImport(modal, { tracks, total, limit }, isStopped) {
         if (isStopped()) return;
         if (found) {
           const { x, y } = projectEmbedding(found.embedding);
-          lastId = plotSong(track.title, track.artist, x, y, color, { quiet: true, lyrics: found.lyrics });
+          lastId = plotSong(track.title, track.artist, x, y, color, { quiet: true, lyrics: found.lyrics, isNew: Boolean(found.lyrics) });
           placed++;
         } else {
           skip(track, "no lyrics found");
@@ -607,6 +608,7 @@ async function runImport(modal, { tracks, total, limit }, isStopped) {
   await Promise.all(Array.from({ length: IMPORT_CONCURRENCY }, worker));
 
   if (lastId !== null) selectSong(lastId);
+  if (placed) unlock("dj");
   if (isStopped()) return;
   modal.root.querySelector(".modal-title").textContent =
     `Imported ${placed} song${placed === 1 ? "" : "s"}`;
@@ -695,7 +697,7 @@ function freeDotSpot(x, y) {
 
 // Returns the new song's id. `quiet` skips selecting and scrolling, for bulk imports.
 // `lyrics`, when known, are kept in memory only, for "Why is it here?".
-function plotSong(title, artist, rawX, rawY, color, { quiet = false, lyrics = null } = {}) {
+function plotSong(title, artist, rawX, rawY, color, { quiet = false, lyrics = null, isNew = false, pasted = false } = {}) {
   const layer = document.getElementById("songLayer");
   const nx = sigmoidScaled(rawX);
   const ny = sigmoidScaled(rawY);
@@ -785,7 +787,9 @@ function plotSong(title, artist, rawX, rawY, color, { quiet = false, lyrics = nu
     magnet: { x: 0, y: 0, vx: 0, vy: 0 },
     itunes: undefined,  // preview and cover: undefined until looked up, null if none
   });
-  queueItunes(songs[songs.length - 1]);
+  const song = songs[songs.length - 1];
+  queueItunes(song);
+  checkSongAchievements(song, { isNew, pasted });
   if (quiet) renderSongList();
   else selectSong(id);
   return id;
@@ -1096,7 +1100,7 @@ function togglePreview(song) {
     previewAudio.src = song.itunes.preview;
     playingSongId = song.id;
   }
-  previewAudio.play().catch(() => {
+  previewAudio.play().then(() => unlock("ears_on")).catch(() => {
     stopPreview();
     toast("Couldn't play the preview.", "error");
   });
@@ -1192,6 +1196,7 @@ function whyAxisHtml(lines, key, negWord, posWord, score) {
 }
 
 function openWhyModal(song) {
+  unlock("detective");
   const modal = openModal(`
     <button class="modal-close" aria-label="Close">${CLOSE_ICON}</button>
     <h2 class="modal-title">Why ${escapeHtml(song.title)} lands here</h2>
@@ -1351,6 +1356,7 @@ async function fetchPhrases(word) {
 }
 
 function openPhrasesModal() {
+  unlock("behind_curtain");
   const w = builtWords;
   // Same pole colours as the Why bars
   const poles = [
@@ -1595,6 +1601,7 @@ async function saveImage() {
       a.href = URL.createObjectURL(blob);
       a.download = "musical-compass.png";
       a.click();
+      unlock("shutterbug");
       setTimeout(() => URL.revokeObjectURL(a.href), 1000);
     }, "image/png");
   };
@@ -1615,6 +1622,373 @@ function selectColor(color, fromCustom = false) {
   custom.classList.toggle("is-set", fromCustom);
   custom.style.setProperty("--c", color);
   custom.setAttribute("aria-pressed", String(fromCustom));
+}
+
+// --- Achievements -------------------------------------------------------------------
+// Saved in this browser only. Some unlock new dot colours.
+
+const RARITIES = {
+  common:    { label: "Common",    color: "#D9D9D9" },
+  uncommon:  { label: "Uncommon",  color: "#9AED97" },
+  rare:      { label: "Rare",      color: "#42AAFF" },
+  epic:      { label: "Epic",      color: "#C09AEC" },
+  legendary: { label: "Legendary", color: "#FFC93C" },
+};
+
+const REWARD_COLORS = {
+  bubblegum: { name: "Bubblegum", color: "#FF5FA2" },
+  teal:      { name: "Teal",      color: "#00A6A6" },
+  violet:    { name: "Violet",    color: "#7B3FF2" },
+  silver:    { name: "Silver",    color: "#B5B5B5" },
+  saffron:   { name: "Saffron",   color: "#FF9933" },
+  mint:      { name: "Mint",      color: "#3DDC97" },
+  gold:      { name: "Gold",      color: "#E8B100" },
+  ruby:      { name: "Ruby",      color: "#A3001B" },
+};
+
+const CORNER_MIN = 9.5;   // both scores past this to count as a corner
+// How alike the two axis directions must be. Synonym pairs (Happy/Sad and
+// Joyful/Miserable) measured 0.60-0.69; unrelated pairs at most 0.29.
+const MOOD_SWING_MIN = 0.45;
+
+// Artwork: tiny 48x48 drawings in the compass's own style
+function artCompass(dots = [], extra = "") {
+  const px = v => (24 + v * 1.7).toFixed(1), py = v => (24 - v * 1.7).toFixed(1);
+  return `<rect x="7" y="7" width="17" height="17" fill="#FF7575"/><rect x="24" y="7" width="17" height="17" fill="#42AAFF"/>`
+    + `<rect x="7" y="24" width="17" height="17" fill="#9AED97"/><rect x="24" y="24" width="17" height="17" fill="#C09AEC"/>`
+    + `<path d="M24 7v34M7 24h34" stroke="#000" stroke-width="1.5"/><rect x="7" y="7" width="34" height="34" fill="none" stroke="#000" stroke-width="2"/>`
+    + extra
+    + dots.map(([x, y, fill = "#fff"]) => `<circle cx="${px(x)}" cy="${py(y)}" r="3.4" fill="${fill}" stroke="#000" stroke-width="1.5"/>`).join("");
+}
+
+function artGlyph(bg, inner) {
+  return `<rect x="6" y="6" width="36" height="36" fill="${bg}" stroke="#000" stroke-width="2"/>${inner}`;
+}
+
+const artText = (bg, text, size = 16) =>
+  artGlyph(bg, `<text x="24" y="${24 + size * 0.36}" text-anchor="middle" font-size="${size}" font-weight="700">${text}</text>`);
+
+const GLYPHS = {
+  crate: `<path d="M17 19l3-5h8l3 5" fill="none" stroke="#000" stroke-width="2"/><rect x="13" y="19" width="22" height="15" fill="#fff" stroke="#000" stroke-width="2"/><path d="M13 24h22" stroke="#000" stroke-width="2"/>`,
+  globe: `<circle cx="24" cy="24" r="11" fill="#fff" stroke="#000" stroke-width="2"/><ellipse cx="24" cy="24" rx="5" ry="11" fill="none" stroke="#000" stroke-width="1.5"/><path d="M13 24h22" stroke="#000" stroke-width="1.5"/>`,
+  pen: `<path d="M15 33l2-6 13-13 4 4-13 13z" fill="#fff" stroke="#000" stroke-width="2" stroke-linejoin="round"/><path d="M27 17l4 4" stroke="#000" stroke-width="2"/>`,
+  vinyl: `<circle cx="24" cy="24" r="12" fill="#000"/><circle cx="24" cy="24" r="4.5" fill="#FF7575"/><circle cx="24" cy="24" r="1.2" fill="#fff"/><path d="M24 15a9 9 0 0 1 9 9" fill="none" stroke="#666" stroke-width="1"/>`,
+  rose: `<path d="M24 11l3 10 10 3-10 3-3 10-3-10-10-3 10-3z" fill="#fff" stroke="#000" stroke-width="1.8" stroke-linejoin="round"/><path d="M24 11l3 10-3 3z" fill="#FF7575"/>`,
+  magnifier: `<circle cx="21" cy="21" r="7" fill="#fff" stroke="#000" stroke-width="2.2"/><path d="M26 26l8 8" stroke="#000" stroke-width="3"/>`,
+  curtain: `<path d="M12 12h24" stroke="#000" stroke-width="2.5"/><path d="M13 13c0 8 2 15 6 22h-6z" fill="#FF7575" stroke="#000" stroke-width="1.8" stroke-linejoin="round"/><path d="M35 13c0 8-2 15-6 22h6z" fill="#FF7575" stroke="#000" stroke-width="1.8" stroke-linejoin="round"/>`,
+  headphones: `<path d="M14 29v-5a10 10 0 0 1 20 0v5" fill="none" stroke="#000" stroke-width="2.2"/><rect x="12" y="27" width="6" height="9" fill="#fff" stroke="#000" stroke-width="2"/><rect x="30" y="27" width="6" height="9" fill="#fff" stroke="#000" stroke-width="2"/>`,
+  camera: `<path d="M18 17l2-3h8l2 3" fill="none" stroke="#000" stroke-width="2"/><rect x="12" y="17" width="24" height="17" fill="#fff" stroke="#000" stroke-width="2"/><circle cx="24" cy="25.5" r="5" fill="#42AAFF" stroke="#000" stroke-width="2"/>`,
+  eye: `<path d="M11 24c4-7 9-9 13-9s9 2 13 9c-4 7-9 9-13 9s-9-2-13-9z" fill="#fff" stroke="#000" stroke-width="2"/><circle cx="24" cy="24" r="4.5" fill="#000"/>`,
+  note: `<path d="M27 14v16" stroke="#000" stroke-width="2.2"/><path d="M27 14c4 1 6 3 7 6" fill="none" stroke="#000" stroke-width="2.2"/><ellipse cx="23" cy="30" rx="4.5" ry="3.5" fill="#000"/>`,
+  waves: `<path d="M13 20c4-4 7 4 11 0s7 4 11 0M13 28c4-4 7 4 11 0s7 4 11 0" fill="none" stroke="#000" stroke-width="2.4"/>`,
+  crown: `<path d="M12 31l-1-14 7 6 6-9 6 9 7-6-1 14z" fill="#FFC93C" stroke="#000" stroke-width="2" stroke-linejoin="round"/>`,
+};
+
+const ACHIEVEMENTS = [
+  // Where songs land
+  { id: "dead_centre", group: "Placement", name: "Dead Centre", rarity: "epic", reward: "mint",
+    desc: "Land a song within half a point of the exact middle.",
+    art: artCompass([[0, 0]], `<circle cx="24" cy="24" r="7" fill="none" stroke="#000" stroke-width="1.2"/>`) },
+  { id: "corner_tl", group: "Placement", name: "North-West", rarity: "uncommon",
+    desc: `Land a song deep in the top-left corner (past ${CORNER_MIN} on both axes).`, art: artCompass([[-8, 8]]) },
+  { id: "corner_tr", group: "Placement", name: "North-East", rarity: "uncommon",
+    desc: `Land a song deep in the top-right corner (past ${CORNER_MIN} on both axes).`, art: artCompass([[8, 8]]) },
+  { id: "corner_bl", group: "Placement", name: "South-West", rarity: "uncommon",
+    desc: `Land a song deep in the bottom-left corner (past ${CORNER_MIN} on both axes).`, art: artCompass([[-8, -8]]) },
+  { id: "corner_br", group: "Placement", name: "South-East", rarity: "uncommon",
+    desc: `Land a song deep in the bottom-right corner (past ${CORNER_MIN} on both axes).`, art: artCompass([[8, -8]]) },
+  { id: "cornered", group: "Placement", name: "Cornered", rarity: "legendary", reward: "gold",
+    desc: "Fill all four corners on one compass.", art: artCompass([[-8, 8], [8, 8], [-8, -8], [8, -8]]) },
+  { id: "tightrope", group: "Placement", name: "Tightrope", rarity: "rare",
+    desc: "Land a song right on an axis line, at least 5 points out from the middle.", art: artCompass([[6.5, 0]]) },
+  { id: "off_the_charts", group: "Placement", name: "Off the Charts", rarity: "uncommon",
+    desc: "Score past 9.9 on either axis.", art: artCompass([[10.6, 3]]) },
+  { id: "full_spread", group: "Placement", name: "Full Spread", rarity: "common", reward: "teal",
+    desc: "Have a song in every quadrant of one compass.", art: artCompass([[-5, 5], [5, 5], [-5, -5], [5, -5]]) },
+  { id: "twins", group: "Placement", name: "Twins", rarity: "uncommon",
+    desc: "Two different songs land within 0.3 of each other.", art: artCompass([[3, 4], [4.6, 4.6]]) },
+  { id: "opposites", group: "Placement", name: "Opposites", rarity: "rare",
+    desc: "Two songs land in mirror-image spots across the middle.",
+    art: artCompass([[-6, 5], [6, -5]], `<path d="M13.8 15.5L34.2 32.5" stroke="#000" stroke-width="1.2" stroke-dasharray="2 2"/>`) },
+  { id: "split_personality", group: "Placement", name: "Split Personality", rarity: "uncommon",
+    desc: "Two songs by the same artist land in opposite quadrants.", art: artCompass([[-6, 6, "#000"], [6, -6, "#000"]]) },
+
+  // Collecting songs
+  { id: "songs_1", group: "Collecting", name: "First Song", rarity: "common", reward: "bubblegum",
+    stat: "songs", goal: 1, desc: "Plot your first song.", art: artText("#fff", "1", 18) },
+  { id: "songs_10", group: "Collecting", name: "Mixtape", rarity: "common",
+    stat: "songs", goal: 10, desc: "Plot 10 songs.", art: artText("#9AED97", "10", 16) },
+  { id: "songs_50", group: "Collecting", name: "Heavy Rotation", rarity: "uncommon", reward: "silver",
+    stat: "songs", goal: 50, desc: "Plot 50 songs.", art: artText("#42AAFF", "50", 16) },
+  { id: "songs_100", group: "Collecting", name: "Centurion", rarity: "rare",
+    stat: "songs", goal: 100, desc: "Plot 100 songs.", art: artText("#C09AEC", "100", 13) },
+  { id: "crate_digger", group: "Collecting", name: "Crate Digger", rarity: "uncommon", reward: "violet",
+    desc: "Add a song nobody has added before.", art: artGlyph("#FFC93C", GLYPHS.crate) },
+  { id: "polyglot", group: "Collecting", name: "Polyglot", rarity: "rare", reward: "saffron",
+    desc: "Add a song written mostly outside the Latin alphabet.", art: artGlyph("#42AAFF", GLYPHS.globe) },
+  { id: "by_hand", group: "Collecting", name: "By Hand", rarity: "common",
+    desc: "Paste a song's lyrics yourself.", art: artGlyph("#9AED97", GLYPHS.pen) },
+  { id: "dj", group: "Collecting", name: "DJ", rarity: "common",
+    desc: "Import a Spotify playlist.", art: artGlyph("#fff", GLYPHS.vinyl) },
+
+  // Building compasses
+  { id: "wordsmith", group: "Compasses", name: "Wordsmith", rarity: "uncommon",
+    desc: "Build a compass with a word nobody has used before.", art: artText("#FF7575", "Aa", 17) },
+  { id: "compasses_5", group: "Compasses", name: "Cartographer", rarity: "common",
+    stat: "compasses", goal: 5, desc: "Build 5 compasses.", art: artGlyph("#42AAFF", GLYPHS.rose) },
+
+  // Looking around
+  { id: "detective", group: "Exploring", name: "Detective", rarity: "common",
+    desc: "Ask why a song landed where it did.", art: artGlyph("#C09AEC", GLYPHS.magnifier) },
+  { id: "behind_curtain", group: "Exploring", name: "Behind the Curtain", rarity: "common",
+    desc: "Look at the phrases behind your words.", art: artGlyph("#fff", GLYPHS.curtain) },
+  { id: "ears_on", group: "Exploring", name: "Ears On", rarity: "common",
+    desc: "Play a song preview.", art: artGlyph("#9AED97", GLYPHS.headphones) },
+  { id: "shutterbug", group: "Exploring", name: "Shutterbug", rarity: "common",
+    desc: "Save your compass as an image.", art: artGlyph("#FF7575", GLYPHS.camera) },
+
+  // Hidden until unlocked
+  { id: "self_aware", group: "Hidden", hidden: true, name: "Self-Aware", rarity: "rare",
+    desc: "Plot a song whose title contains one of your axis words.", art: artGlyph("#42AAFF", GLYPHS.eye) },
+  { id: "rickrolled", group: "Hidden", hidden: true, name: "Rickrolled", rarity: "legendary",
+    desc: "Plot Never Gonna Give You Up.", art: artGlyph("#FF7575", GLYPHS.note) },
+  { id: "mood_swing", group: "Hidden", hidden: true, name: "Mood Swing", rarity: "epic",
+    desc: "Build a compass whose two axes mean nearly the same thing.", art: artGlyph("#C09AEC", GLYPHS.waves) },
+  { id: "completionist", group: "Hidden", hidden: true, name: "Completionist", rarity: "legendary", reward: "ruby",
+    desc: "Unlock every other achievement.", art: artGlyph("#fff", GLYPHS.crown) },
+];
+
+const ACHIEVEMENT_GROUPS = ["Placement", "Collecting", "Compasses", "Exploring", "Hidden"];
+const ACHIEVEMENT_KEY = "achievements";
+const ACHIEVEMENT_TOAST_MS = 5000;
+const MAX_ACHIEVEMENT_TOASTS = 3;
+
+function loadAchievementState() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(ACHIEVEMENT_KEY));
+    if (saved && saved.unlocked && saved.stats) return saved;
+  } catch { /* fall through to a fresh start */ }
+  return { unlocked: {}, stats: { songs: 0, compasses: 0 } };
+}
+
+let achievementState = loadAchievementState();
+const achievementToastQueue = [];
+
+function saveAchievementState() {
+  try { localStorage.setItem(ACHIEVEMENT_KEY, JSON.stringify(achievementState)); } catch { /* blocked: progress lasts this visit */ }
+}
+
+function achievementSvg(a, locked) {
+  const art = locked && a.hidden ? artText("#fff", "?", 20) : a.art;
+  return `<svg class="ach-art" viewBox="0 0 48 48" aria-hidden="true">${art}</svg>`;
+}
+
+function unlock(id) {
+  if (achievementState.unlocked[id]) return;
+  const a = ACHIEVEMENTS.find(x => x.id === id);
+  if (!a) return;
+  achievementState.unlocked[id] = Date.now();
+  saveAchievementState();
+  achievementToastQueue.push(a);
+  showAchievementToasts();
+  renderRewardSwatches();
+  updateAchievementsLink();
+
+  const others = ACHIEVEMENTS.filter(x => x.id !== "completionist");
+  if (others.every(x => achievementState.unlocked[x.id])) unlock("completionist");
+}
+
+function bumpStat(name) {
+  achievementState.stats[name] = (achievementState.stats[name] || 0) + 1;
+  saveAchievementState();
+  for (const a of ACHIEVEMENTS) {
+    if (a.stat === name && achievementState.stats[name] >= a.goal) unlock(a.id);
+  }
+}
+
+function isMostlyNonLatin(text) {
+  const letters = text.match(/\p{L}/gu) || [];
+  if (letters.length < 3) return false;
+  const latin = text.match(/\p{Script=Latin}/gu) || [];
+  return latin.length / letters.length < 0.5;
+}
+
+const OPPOSITE_QUADRANT = { tl: "br", br: "tl", tr: "bl", bl: "tr" };
+const isCorner = s => Math.abs(s.x) >= CORNER_MIN && Math.abs(s.y) >= CORNER_MIN;
+
+// Called after each song lands. `isNew`: nobody had added it before; `pasted`: the user typed in the lyrics.
+function checkSongAchievements(song, { isNew = false, pasted = false } = {}) {
+  bumpStat("songs");
+  const s = song.score;
+  const ax = Math.abs(s.x), ay = Math.abs(s.y);
+  const q = quadrantOf(s);
+
+  if (ax <= 0.5 && ay <= 0.5) unlock("dead_centre");
+  if (isCorner(s)) unlock(`corner_${q}`);
+  if (ax >= 9.9 || ay >= 9.9) unlock("off_the_charts");
+  if ((ax <= 0.25 && ay >= 5) || (ay <= 0.25 && ax >= 5)) unlock("tightrope");
+  if (isNew) unlock("crate_digger");
+  if (pasted) unlock("by_hand");
+  if (isMostlyNonLatin(song.lyrics || song.title)) unlock("polyglot");
+
+  const title = ` ${normalizeName(song.title)} `;
+  if (title.includes(" never gonna give you up ")) unlock("rickrolled");
+  if (builtWords && Object.values(builtWords).some(w => title.includes(` ${normalizeName(w)} `))) unlock("self_aware");
+
+  for (const other of songs) {
+    if (other === song) continue;
+    const o = other.score;
+    if (Math.hypot(s.x - o.x, s.y - o.y) <= 0.3) unlock("twins");
+    if (Math.abs(s.x + o.x) <= 0.6 && Math.abs(s.y + o.y) <= 0.6 && Math.hypot(s.x, s.y) >= 3) unlock("opposites");
+    if (baseArtist(other.artist) === baseArtist(song.artist) && quadrantOf(o) === OPPOSITE_QUADRANT[q]) unlock("split_personality");
+  }
+
+  const quadrants = new Set(songs.map(x => quadrantOf(x.score)));
+  if (quadrants.size === 4) unlock("full_spread");
+  const corners = new Set(songs.filter(x => isCorner(x.score)).map(x => quadrantOf(x.score)));
+  if (corners.size === 4) unlock("cornered");
+}
+
+function checkCompassAchievements(newWords) {
+  bumpStat("compasses");
+  if (newWords && newWords.length) unlock("wordsmith");
+  // Both axes are unit vectors, so their dot product is how alike they are
+  if (Math.abs(dot(currentAxisX, currentAxisY)) >= MOOD_SWING_MIN) unlock("mood_swing");
+}
+
+// Unlock chime, synthesised so there's no audio file: a rising arpeggio that
+// gets longer and brighter with rarity
+const CHIME_NOTES = {
+  common:    [659, 988],
+  uncommon:  [659, 880, 1319],
+  rare:      [587, 784, 988, 1319],
+  epic:      [523, 659, 784, 1047, 1319],
+  legendary: [523, 659, 784, 1047, 1319, 1568],
+};
+const CHIME_GAP_S = 0.07;
+const CHIME_VOLUME = 0.07;
+const CHIME_MIN_INTERVAL_MS = 400;  // several unlocks at once make one chime, not a pile-up
+const SOUND_KEY = "achievementSound";
+
+let audioCtx = null;
+let lastChimeAt = 0;
+
+function soundOn() {
+  try { return localStorage.getItem(SOUND_KEY) !== "off"; } catch { return true; }
+}
+
+function playChime(rarity) {
+  if (!soundOn() || Date.now() - lastChimeAt < CHIME_MIN_INTERVAL_MS) return;
+  lastChimeAt = Date.now();
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    const start = audioCtx.currentTime + 0.02;
+    CHIME_NOTES[rarity].forEach((freq, i) => {
+      const t = start + i * CHIME_GAP_S;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = rarity === "legendary" || rarity === "epic" ? "triangle" : "sine";
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(CHIME_VOLUME, t + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.45);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start(t);
+      osc.stop(t + 0.5);
+    });
+  } catch { /* no Web Audio: stay silent */ }
+}
+
+function showAchievementToasts() {
+  const root = document.getElementById("achievementToasts");
+  while (achievementToastQueue.length && root.children.length < MAX_ACHIEVEMENT_TOASTS) {
+    const a = achievementToastQueue.shift();
+    const rarity = RARITIES[a.rarity];
+    const reward = a.reward ? `<p class="ach-toast-reward">New dot colour: ${REWARD_COLORS[a.reward].name}</p>` : "";
+    const el = document.createElement("button");
+    el.type = "button";
+    el.className = "ach-toast";
+    el.style.setProperty("--r", rarity.color);
+    el.innerHTML = `
+      ${achievementSvg(a, false)}
+      <span class="ach-toast-text">
+        <span class="ach-toast-kicker">Achievement unlocked · ${rarity.label}</span>
+        <span class="ach-toast-name">${escapeHtml(a.name)}</span>
+        ${reward}
+      </span>`;
+    const dismiss = () => {
+      if (!el.isConnected || el.classList.contains("leaving")) return;
+      el.classList.add("leaving");
+      setTimeout(() => { el.remove(); showAchievementToasts(); }, 200);
+    };
+    el.addEventListener("click", () => { dismiss(); openAchievementsModal(); });
+    root.appendChild(el);
+    playChime(a.rarity);
+    setTimeout(dismiss, ACHIEVEMENT_TOAST_MS);
+  }
+}
+
+function updateAchievementsLink() {
+  const count = Object.keys(achievementState.unlocked).length;
+  document.getElementById("achievementsBtn").textContent = `Achievements (${count}/${ACHIEVEMENTS.length})`;
+}
+
+// Unlocked reward colours join the dot swatches
+function renderRewardSwatches() {
+  const holder = document.getElementById("rewardSwatches");
+  const earned = ACHIEVEMENTS.filter(a => a.reward && achievementState.unlocked[a.id]);
+  holder.innerHTML = earned.map(a => {
+    const r = REWARD_COLORS[a.reward];
+    return `<button type="button" class="swatch" data-color="${r.color}" style="--c:${r.color}" aria-label="${r.name}" title="${r.name} (from ${escapeHtml(a.name)})"></button>`;
+  }).join("");
+  holder.querySelectorAll(".swatch").forEach(btn => btn.addEventListener("click", () => selectColor(btn.dataset.color)));
+  selectColor(selectedColor, document.querySelector(".swatch-custom").classList.contains("is-set"));
+}
+
+function openAchievementsModal() {
+  const unlocked = achievementState.unlocked;
+  const count = Object.keys(unlocked).length;
+  const card = (a) => {
+    const got = Boolean(unlocked[a.id]);
+    const secret = a.hidden && !got;
+    const rarity = RARITIES[a.rarity];
+    const progress = a.stat && !got
+      ? `<span class="ach-progress">${Math.min(achievementState.stats[a.stat] || 0, a.goal)} / ${a.goal}</span>` : "";
+    const reward = a.reward
+      ? `<span class="ach-reward"><span class="ach-reward-dot" style="--c:${REWARD_COLORS[a.reward].color}"></span>${got ? "" : "Unlocks "}${REWARD_COLORS[a.reward].name} dot</span>` : "";
+    const when = got ? ` title="Unlocked ${new Date(unlocked[a.id]).toLocaleDateString()}"` : "";
+    return `
+      <li class="ach-card${got ? " is-unlocked" : ""}"${when}>
+        ${achievementSvg(a, !got)}
+        <div class="ach-card-text">
+          <p class="ach-card-name">${secret ? "???" : escapeHtml(a.name)}</p>
+          <span class="ach-rarity" style="--r:${rarity.color}">${rarity.label}</span>
+          <p class="ach-card-desc">${secret ? "Hidden. Keep exploring." : escapeHtml(a.desc)}</p>
+          ${progress}${secret ? "" : reward}
+        </div>
+      </li>`;
+  };
+  const groups = ACHIEVEMENT_GROUPS.map(g => `
+    <h3 class="ach-group">${g}</h3>
+    <ul class="ach-grid">${ACHIEVEMENTS.filter(a => a.group === g).map(card).join("")}</ul>`).join("");
+
+  const modal = openModal(`
+    <button class="modal-close" aria-label="Close">${CLOSE_ICON}</button>
+    <h2 class="modal-title">Achievements</h2>
+    <div class="ach-head-row">
+      <p>${count} of ${ACHIEVEMENTS.length} unlocked. Saved in this browser.</p>
+      <label class="ach-sound"><input type="checkbox" ${soundOn() ? "checked" : ""}> Sound</label>
+    </div>
+    <div class="ach-progress-track"><div class="ach-progress-bar" style="width:${count / ACHIEVEMENTS.length * 100}%"></div></div>
+    ${groups}
+  `);
+  modal.root.querySelector(".modal").classList.add("modal-wide");
+  modal.root.querySelector(".modal-close").onclick = modal.close;
+  modal.root.querySelector(".ach-sound input").addEventListener("change", e => {
+    try { localStorage.setItem(SOUND_KEY, e.target.checked ? "on" : "off"); } catch { /* blocked */ }
+    if (e.target.checked) { lastChimeAt = 0; playChime("rare"); }
+  });
 }
 
 // --- Init -------------------------------------------------------------------------
@@ -1674,5 +2048,8 @@ window.onload = () => {
   updateScale();
   loadStats();
   loadKnownWords();
+  document.getElementById("achievementsBtn").addEventListener("click", openAchievementsModal);
+  updateAchievementsLink();
+  renderRewardSwatches();
   new ResizeObserver(updateScale).observe(document.getElementById("graph"));
 };

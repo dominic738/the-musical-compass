@@ -153,6 +153,16 @@ def register_word(word, embeddings, generation=None):
         print(f"Couldn't register word '{word}': {e}")
 
 
+def known_words(words):
+    """Which of these (lowercase) words already have phrases cached."""
+    try:
+        result = phrase_index.fetch(ids=list(words), namespace=WORDS_NAMESPACE)
+        return set((_field(result, 'vectors') or {}).keys())
+    except Exception as e:
+        print(f"Couldn't check known words: {e}")
+        return set(words)  # unknown: don't claim anything is new
+
+
 def list_words():
     """Every word that has phrases cached, sorted."""
     words = []
