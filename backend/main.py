@@ -8,6 +8,7 @@ import generative_utils as cu
 import embedding_utils as eu
 import lyrics_utils as lu
 import spotify_utils as su
+import moderation_utils as mu
 from concurrent.futures import ThreadPoolExecutor, wait
 import uvicorn
 import numpy as np
@@ -104,6 +105,13 @@ def generate_axes(body: AxesRequest):
 
     # Phrases are cached per lowercase word, so only generate each distinct word once
     words = {w.lower(): w for w in [x_pos, x_neg, y_pos, y_neg]}
+
+    # Words become public in the word list, so turn away slurs before spending anything
+    with ThreadPoolExecutor(max_workers=len(words)) as executor:
+        blocked = [w for w, bad in zip(words.values(), executor.map(mu.is_blocked_word, words.values())) if bad]
+    if blocked:
+        print(f"Blocked axis words: {blocked}", flush=True)
+        raise HTTPException(status_code=400, detail="One or more of those words isn't allowed. Please pick different words.")
 
     # Generate phrases for all words in parallel. Not using a `with` block: its
     # exit waits for every thread, which would defeat the timeout.
@@ -221,6 +229,8 @@ def explain_song(body: ExplainRequest):
 @app.get("/phrases")
 def get_phrases(word: str = Query(min_length=1, max_length=50)):
     """The phrases written for a word, most typical first."""
+    if mu.is_blocked_word(word, use_moderation=False):
+        raise HTTPException(status_code=404, detail=f"No phrases have been written for '{word}' yet.")
     try:
         phrases = cu.load_phrase_texts(word.strip())
     except Exception as e:
@@ -251,7 +261,9 @@ def cached_listing(key, compute):
 def get_words():
     """Every word anyone has built a compass with."""
     try:
-        return {"words": cached_listing("words", cu.list_words)}
+        # Words cached before the filter existed are hidden too
+        words = cached_listing("words", cu.list_words)
+        return {"words": [w for w in words if not mu.is_blocked_word(w, use_moderation=False)]}
     except Exception as e:
         print(f"Error listing words: {e}", flush=True)
         raise HTTPException(status_code=502, detail="Couldn't load the word list.")
