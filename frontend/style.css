@@ -257,6 +257,10 @@ input[type="text"]:focus, textarea:focus { outline: none; border-color: var(--in
   min-width: 0;
 }
 
+/* Taller than the window (e.g. zoomed in): scroll with the page instead of
+   staying pinned, or the result below the compass can never be reached */
+.stage.is-unpinned { position: static; max-height: none; }
+
 .compass-wrap, .result {
   width: 100%;
   max-width: max(320px, min(800px, calc(100vh - 175px)));

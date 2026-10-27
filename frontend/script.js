@@ -2180,4 +2180,14 @@ window.onload = () => {
   renderRewardSwatches();
   if (location.hash.length > 3) loadSharedCompass();
   new ResizeObserver(updateScale).observe(document.getElementById("graph"));
+  const stagePin = new ResizeObserver(updateStagePin);
+  document.querySelectorAll(".stage > *").forEach(el => stagePin.observe(el));
+  window.addEventListener("resize", updateStagePin);
 };
+
+// The compass stays in view while the sidebar scrolls, but only if the whole
+// stage fits in the window; otherwise its bottom would be unreachable
+function updateStagePin() {
+  const stage = document.querySelector(".stage");
+  stage.classList.toggle("is-unpinned", stage.scrollHeight > window.innerHeight);
+}
