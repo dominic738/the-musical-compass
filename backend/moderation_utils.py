@@ -46,13 +46,15 @@ BLOCKED_SUBSTRING_HASHES = {
     "919ac5eae9e7fe42", "99721f17fcbf4f8e", "9aa276ffa4737c6d", "a1641cd632f7aba2",
     "a22b49dd842df8dd", "ce6a79f2f28f9ffa", "e4067ba6a5f4dfb6", "e73e228fc4650bb7",
     "e80937428d0ad6ae", "ee761aa359bc8ef9", "ff75280e71e2a249",
+    "720cf9ecf6c53262", "a51891036238aa9a", "4ec2fc89e098eb1b",
 }
 SUBSTRING_LENGTHS = {4, 5, 6, 7, 8, 9, 10, 11, 12}  # lengths of the entries above
 
 # Real words that contain a blocked substring once squashed. Checked before
 # squashing, so a slur that squashes to the same letters isn't let through.
 ALLOWED_WORDS = {"niger", "nigeria", "nigerian", "nigerians", "snigger", "sniggers", "sniggering",
-                 "scunthorpe", "swank", "swanky"}
+                 "scunthorpe", "swank", "swanky", "cannibal", "cannibals", "cannibalism",
+                 "cannibalistic"}
 
 # Short or ambiguous terms, matched only as whole words so ordinary words containing
 # them are fine. Compared as typed and with runs of 3+ letters cut to 2.
