@@ -113,9 +113,18 @@ def generate_axes(body: AxesRequest):
         print(f"Blocked axis words: {blocked}", flush=True)
         raise HTTPException(status_code=400, detail="One or more of those words isn't allowed. Please pick different words.")
 
+    try:
+        reviews = cu.word_reviews(words.keys())
+    except Exception as e:
+        print(f"Couldn't check word reviews: {e}", flush=True)
+        reviews = None
+    # A word a person turned down in review can't be used again
+    if reviews and cu.REVIEW_REJECTED in reviews.values():
+        print(f"Rejected axis words: {[k for k, s in reviews.items() if s == cu.REVIEW_REJECTED]}", flush=True)
+        raise HTTPException(status_code=400, detail="One or more of those words isn't allowed. Please pick different words.")
+
     # Lets the frontend celebrate a word nobody has used before
-    already_known = cu.known_words(words.keys())
-    new_words = [w for key, w in words.items() if key not in already_known]
+    new_words = [w for key, w in words.items() if reviews is not None and key not in reviews]
 
     # Generate phrases for all words in parallel. Not using a `with` block: its
     # exit waits for every thread, which would defeat the timeout.
@@ -237,7 +246,11 @@ def get_phrases(word: str = Query(min_length=1, max_length=50)):
     if mu.is_blocked_word(word, use_moderation=False):
         raise HTTPException(status_code=404, detail=f"No phrases have been written for '{word}' yet.")
     try:
+        if cu.word_reviews([word.strip().lower()]).get(word.strip().lower()) == cu.REVIEW_REJECTED:
+            raise HTTPException(status_code=404, detail=f"No phrases have been written for '{word}' yet.")
         phrases = cu.load_phrase_texts(word.strip())
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Error loading phrases for '{word}': {e}", flush=True)
         raise HTTPException(status_code=502, detail="Couldn't load the phrases. Please try again.")
@@ -263,8 +276,11 @@ def cached_listing(key, compute):
 
 
 def public_words():
-    """The word list minus slurs and crude words; those still work, they just aren't shown."""
-    words = cu.list_words()
+    """
+    Only words a person has approved in review, and of those, none the filters
+    think are crude. Unapproved words still work; they just aren't shown.
+    """
+    words = sorted(w for w, status in cu.all_word_reviews().items() if status == cu.REVIEW_APPROVED)
     with ThreadPoolExecutor(max_workers=8) as executor:
         public = list(executor.map(mu.is_public_word, words))
     return [w for w, ok in zip(words, public) if ok]

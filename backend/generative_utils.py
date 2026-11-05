@@ -134,33 +134,53 @@ def save_cached_phrases(word, phrases, embeddings):
         print(f"Pinecone upsert error for '{word}': {e}")
 
 
+# Every word is reviewed by a person before it can appear in the public word
+# list. Words start pending (entries saved before reviews existed have no
+# status, which counts as pending). Set with `python review_words.py`.
+REVIEW_PENDING = "pending"
+REVIEW_APPROVED = "approved"
+REVIEW_REJECTED = "rejected"
+
+
 def register_word(word, embeddings, generation=None):
-    """Add or refresh the word's entry in the word list."""
+    """Add or refresh the word's entry in the word list, keeping its review status."""
+    key = word.lower()
     try:
+        existing = (_field(phrase_index.fetch(ids=[key], namespace=WORDS_NAMESPACE), 'vectors') or {}).get(key)
+        existing_meta = _field(existing, 'metadata') or {}
+        if existing is not None and existing_meta.get("generation") == generation:
+            return  # already up to date
+
         centroid = np.mean(embeddings, axis=0)
-        metadata = {"word": word.lower(), "total": len(embeddings)}
+        values = (centroid / np.linalg.norm(centroid)).tolist()
+        metadata = {"word": key, "total": len(embeddings)}
         if generation is not None:
             metadata["generation"] = generation
-        phrase_index.upsert(
-            vectors=[{
-                "id": word.lower(),
-                "values": (centroid / np.linalg.norm(centroid)).tolist(),
-                "metadata": metadata,
-            }],
-            namespace=WORDS_NAMESPACE,
-        )
+
+        if existing is not None:
+            # update merges metadata, so the review status survives a regeneration
+            phrase_index.update(id=key, values=values, set_metadata=metadata, namespace=WORDS_NAMESPACE)
+        else:
+            metadata["review"] = REVIEW_PENDING
+            phrase_index.upsert(
+                vectors=[{"id": key, "values": values, "metadata": metadata}],
+                namespace=WORDS_NAMESPACE,
+            )
     except Exception as e:
         print(f"Couldn't register word '{word}': {e}")
 
 
-def known_words(words):
-    """Which of these (lowercase) words already have phrases cached."""
-    try:
-        result = phrase_index.fetch(ids=list(words), namespace=WORDS_NAMESPACE)
-        return set((_field(result, 'vectors') or {}).keys())
-    except Exception as e:
-        print(f"Couldn't check known words: {e}")
-        return set(words)  # unknown: don't claim anything is new
+def word_reviews(words):
+    """Review status of each of these (lowercase) words that has phrases cached."""
+    result = phrase_index.fetch(ids=list(words), namespace=WORDS_NAMESPACE)
+    return {
+        word: (_field(vec, 'metadata') or {}).get("review") or REVIEW_PENDING
+        for word, vec in (_field(result, 'vectors') or {}).items()
+    }
+
+
+def set_review(word, status):
+    phrase_index.update(id=word.lower(), set_metadata={"review": status}, namespace=WORDS_NAMESPACE)
 
 
 def list_words():
@@ -170,6 +190,15 @@ def list_words():
         # Older SDKs yield plain ID strings, newer ones objects with an .id
         words.extend(i if isinstance(i, str) else _field(i, 'id') for i in ids)
     return sorted(w for w in words if w)
+
+
+def all_word_reviews():
+    """Review status of every word, in batches small enough for one fetch each."""
+    words = list_words()
+    reviews = {}
+    for i in range(0, len(words), FETCH_BATCH_SIZE):
+        reviews.update(word_reviews(words[i:i + FETCH_BATCH_SIZE]))
+    return reviews
 
 
 def count_words():

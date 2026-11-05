@@ -12,6 +12,9 @@ Two layers:
      and paste the printed hash into the matching set below.
   2. OpenAI's moderation endpoint (free), for hate speech the list misses.
      Only hate and threat categories count: words like "horny" are fine here.
+  3. A gpt-4o-mini check for disguised slurs that get past both.
+Even then, no word is shown publicly until a person approves it
+(see review_words.py).
 """
 import hashlib
 import os
@@ -167,11 +170,47 @@ def _flagged_by_moderation(word):
     return any(categories.get(c) for c in MODERATION_CATEGORIES)
 
 
+SLUR_CHECK_PROMPT = (
+    "You screen words people type into a public website. Is the following a slur, "
+    "a misspelled or disguised version of a slur (e.g. letters swapped or replaced), "
+    "or a term mainly used to demean a race, religion, gender, sexuality, disability "
+    "or nationality? Ordinary words that merely name a group (e.g. 'white', 'gay', "
+    "'muslim') are not slurs. Answer only YES or NO.\n\nTerm: {word}"
+)
+_slur_check_cache = {}
+
+
+def flagged_as_slur(word):
+    """
+    Asks an LLM whether a word is a slur, including disguised spellings the
+    blocklist and moderation endpoint miss. Fails open, since a person still
+    reviews every word before it's shown publicly.
+    """
+    key = word.lower().strip()
+    if key in ALLOWED_WORDS:
+        return False
+    if key in _slur_check_cache:
+        return _slur_check_cache[key]
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": SLUR_CHECK_PROMPT.format(word=key)}],
+            temperature=0,
+            max_tokens=2,
+        )
+    except Exception as e:
+        print(f"Slur check failed for '{key}': {e}", flush=True)
+        return False
+    flagged = response.choices[0].message.content.strip().upper().startswith("YES")
+    _slur_check_cache[key] = flagged
+    return flagged
+
+
 def is_blocked_word(word, use_moderation=True):
     """True if an axis word is a slur or hate speech."""
     if _on_blocklist(word):
         return True
-    return use_moderation and _flagged_by_moderation(word)
+    return use_moderation and (_flagged_by_moderation(word) or flagged_as_slur(word))
 
 
 _public_cache = {}
