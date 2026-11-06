@@ -140,6 +140,7 @@ def save_cached_phrases(word, phrases, embeddings):
 REVIEW_PENDING = "pending"
 REVIEW_APPROVED = "approved"
 REVIEW_REJECTED = "rejected"
+REVIEW_HIDDEN = "hidden"  # fine to use, just never shown publicly
 
 
 def register_word(word, embeddings, generation=None):

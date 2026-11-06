@@ -5,6 +5,7 @@ Review axis words before they appear in the public word list. Run locally
     python review_words.py                      words waiting for review, with what the filters think
     python review_words.py all                  every word and its status
     python review_words.py approve <word> ...   show in the public list
+    python review_words.py hide <word> ...      keep it usable, but never show it publicly
     python review_words.py reject <word> ...    hide, and refuse it as an axis word from now on
     python review_words.py pending <word> ...   undo: back to waiting
 
@@ -14,7 +15,8 @@ import sys
 import generative_utils as cu
 import moderation_utils as mu
 
-COMMANDS = {"approve": cu.REVIEW_APPROVED, "reject": cu.REVIEW_REJECTED, "pending": cu.REVIEW_PENDING}
+COMMANDS = {"approve": cu.REVIEW_APPROVED, "hide": cu.REVIEW_HIDDEN,
+            "reject": cu.REVIEW_REJECTED, "pending": cu.REVIEW_PENDING}
 
 
 def filter_notes(word):
@@ -46,7 +48,7 @@ def main(args):
     if not args:
         show_pending(reviews)
     elif args == ["all"]:
-        for status in (cu.REVIEW_APPROVED, cu.REVIEW_PENDING, cu.REVIEW_REJECTED):
+        for status in (cu.REVIEW_APPROVED, cu.REVIEW_HIDDEN, cu.REVIEW_PENDING, cu.REVIEW_REJECTED):
             words = sorted(w for w, s in reviews.items() if s == status)
             print(f"{status} ({len(words)}): {', '.join(words) or '-'}")
     elif args[0] in COMMANDS and len(args) > 1:
